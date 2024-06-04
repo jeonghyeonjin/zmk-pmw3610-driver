@@ -9,6 +9,9 @@ properties:
   irq-gpios:
     type: phandle-array
     required: true
+  enable_gpio-gpios:
+    type: phandle-array
+    required: true
   scroll-layers:
     type: array
     default: []
