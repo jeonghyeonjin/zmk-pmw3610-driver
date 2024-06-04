@@ -728,7 +728,9 @@ static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
 
-    pmw3610_report_data(dev);
+    if (!config->enable_gpio.port || gpio_pin_get_dt(&config->enable_gpio)) {
+        pmw3610_report_data(dev);
+    }
     set_interrupt(dev, true);
 }
 
@@ -780,6 +782,14 @@ static int pmw3610_init(const struct device *dev) {
 
     // init trigger handler work
     k_work_init(&data->trigger_work, pmw3610_work_callback);
+
+    if (config->enable_gpio.port) {
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);
+        if (err) {
+            LOG_ERR("Cannot configure enable GPIO");
+            return err;
+        }
+    }
 
     // check readiness of cs gpio pin and init it to inactive
     if (!device_is_ready(config->cs_gpio.port)) {
@@ -833,6 +843,7 @@ static int pmw3610_init(const struct device *dev) {
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
         .snipe_layers_len = DT_PROP_LEN(DT_DRV_INST(n), snipe_layers),                             \
+        .enable_gpio = GPIO_DT_SPEC_INST_GET_OR(n, enable_gpios, {0}),                             \
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
