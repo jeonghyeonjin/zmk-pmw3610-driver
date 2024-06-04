@@ -727,10 +727,12 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
 static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
+    const struct pixart_config *config = dev->config;
 
     if (!config->enable_gpio.port || gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
     }
+    
     set_interrupt(dev, true);
 }
 
