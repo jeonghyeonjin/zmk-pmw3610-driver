@@ -762,6 +762,8 @@ static int pmw3610_init_irq(const struct device *dev) {
 
     LOG_INF("Configure irq done");
 
+    update_automouse_layer(dev);
+
     return err;
 }
 
