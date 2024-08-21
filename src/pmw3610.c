@@ -15,6 +15,7 @@
 #include <zephyr/input/input.h>
 #include <zmk/keymap.h>
 #include "pmw3610.h"
+#include <math.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
@@ -590,6 +591,18 @@ static int pmw3610_report_data(const struct device *dev) {
     int32_t dividor;
     enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
     bool input_mode_changed = data->curr_mode != input_mode;
+
+    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
+        // Trackball is enabled, activate the desired layer
+        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
+    } else {
+        // Trackball is disabled, deactivate all layers except the base layer
+        for (int i = 1; i <= CONFIG_PMW3610_ACTIVE_LAYER; i++) {
+            zmk_keymap_layer_deactivate(i);
+        }
+        input_mode = MOVE; // Force MOVE mode when trackball is disabled
+    }
+
     switch (input_mode) {
     case MOVE:
         set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
@@ -613,98 +626,55 @@ static int pmw3610_report_data(const struct device *dev) {
 
     data->curr_mode = input_mode;
 
-    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-        // Trackball is enabled, activate the desired layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
-    } else {
-        // Trackball is disabled, deactivate the layer
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
-    }
-
-    data->curr_mode = input_mode;
-
-#if AUTOMOUSE_LAYER > 0
-    if (input_mode == MOVE &&
-            (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER)
-    ) {
-        activate_automouse_layer();
-    }
-#endif
-
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
         return err;
     }
 
-    int16_t raw_x =
-        TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12) / dividor;
-    int16_t raw_y =
-        TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12) / dividor;
+    int16_t raw_x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
+    int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
-    int16_t x;
-    int16_t y;
+    float x = (float)raw_x / dividor;
+    float y = (float)raw_y / dividor;
 
-    if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_0)) {
-        x = -raw_x;
-        y = raw_y;
-    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
-        x = raw_y;
-        y = -raw_x;
+    // Apply non-linear acceleration curve
+    float magnitude = sqrtf(x * x + y * y);
+    float acceleration = 1.0f + (magnitude / CONFIG_PMW3610_ACCELERATION_THRESHOLD);
+    x *= acceleration;
+    y *= acceleration;
+
+    int16_t final_x = (int16_t)x;
+    int16_t final_y = (int16_t)y;
+
+    // Apply orientation and inversion
+    if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
+        int16_t temp = final_x;
+        final_x = final_y;
+        final_y = -temp;
     } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_180)) {
-        x = raw_x;
-        y = -raw_y;
+        final_x = -final_x;
+        final_y = -final_y;
     } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_270)) {
-        x = -raw_y;
-        y = raw_x;
+        int16_t temp = final_x;
+        final_x = -final_y;
+        final_y = temp;
     }
 
     if (IS_ENABLED(CONFIG_PMW3610_INVERT_X)) {
-        x = -x;
+        final_x = -final_x;
     }
 
     if (IS_ENABLED(CONFIG_PMW3610_INVERT_Y)) {
-        y = -y;
+        final_y = -final_y;
     }
 
-#ifdef CONFIG_PMW3610_SMART_ALGORITHM
-    int16_t shutter =
-        ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) + buf[PMW3610_SHUTTER_L_POS];
-    if (data->sw_smart_flag && shutter < 45) {
-        reg_write(dev, 0x32, 0x00);
-
-        data->sw_smart_flag = false;
-    }
-
-    if (!data->sw_smart_flag && shutter > 45) {
-        reg_write(dev, 0x32, 0x80);
-
-        data->sw_smart_flag = true;
-    }
-#endif
-
-#ifdef CONFIG_PMW3610_POLLING_RATE_125_SW
-    int64_t curr_time = k_uptime_get();
-    if (data->last_poll_time == 0 || curr_time - data->last_poll_time > 128) {
-        data->last_poll_time = curr_time;
-        data->last_x = x;
-        data->last_y = y;
-        return 0;
-    } else {
-        x += data->last_x;
-        y += data->last_y;
-        data->last_poll_time = 0;
-        data->last_x = 0;
-        data->last_y = 0;
-    }
-#endif
-
-    if (x != 0 || y != 0) {
+    if (final_x != 0 || final_y != 0) {
         if (input_mode != SCROLL) {
-            input_report_rel(dev, INPUT_REL_X, x, false, K_FOREVER);
-            input_report_rel(dev, INPUT_REL_Y, y, true, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_X, final_x, false, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_FOREVER);
         } else {
-            data->scroll_delta_x += x;
-            data->scroll_delta_y += y;
+            data->scroll_delta_x += final_x;
+            data->scroll_delta_y += final_y;
             if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
                 input_report_rel(dev, INPUT_REL_WHEEL,
                                  data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
@@ -721,7 +691,7 @@ static int pmw3610_report_data(const struct device *dev) {
         }
     }
 
-    return err;
+    return 0;
 }
 
 static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,

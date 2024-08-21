@@ -129,6 +129,12 @@ config PMW3610_ACTIVE_LAYER
     help
       Specifies which layer should be activated when the trackball is enabled.
 
+config PMW3610_ACCELERATION_THRESHOLD
+    int "Acceleration threshold for mouse movement"
+    default 5
+    help
+      The threshold at which mouse acceleration begins to take effect.
+
 choice
     prompt "Select PMW3610 sensor orientation"
     default PMW3610_ORIENTATION_0
