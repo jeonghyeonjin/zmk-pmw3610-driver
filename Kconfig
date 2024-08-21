@@ -141,18 +141,6 @@ config PMW3610_ACCELERATION_THRESHOLD
     help
       The threshold at which mouse acceleration begins to take effect.
 
-config PMW3610_PRECISION_THRESHOLD
-    float "Precision threshold for mouse movement"
-    default 0.5
-    help
-      The threshold below which no acceleration is applied for precise movements.
-  
-config PMW3610_MIN_MOVEMENT_THRESHOLD
-    float "Minimum movement threshold"
-    default 0.1
-    help
-      Movements smaller than this threshold will be ignored to prevent jitter.
-
 choice
     prompt "Select PMW3610 sensor orientation"
     default PMW3610_ORIENTATION_0

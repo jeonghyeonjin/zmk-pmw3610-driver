@@ -477,8 +477,8 @@ static int pmw3610_async_init_configure(const struct device *dev) {
 
     // set performace register: run mode, vel_rate, poshi_rate, poslo_rate
     if (!err) {
-        err = reg_write(dev, PMW3610_REG_PERFORMANCE, PMW3610_PERFORMANCE_VALUE | 0x01);  // 0x01 for 500Hz polling rate
-        LOG_INF("Set performance register (reg value 0x%x)", PMW3610_PERFORMANCE_VALUE | 0x01);
+        err = reg_write(dev, PMW3610_REG_PERFORMANCE, PMW3610_PERFORMANCE_VALUE);
+        LOG_INF("Set performance register (reg value 0x%x)", PMW3610_PERFORMANCE_VALUE);
     }
 
     // required downshift and rate registers
@@ -626,38 +626,14 @@ static int pmw3610_report_data(const struct device *dev) {
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
 
-    // Apply non-linear acceleration curve with precision threshold
+    // Apply non-linear acceleration curve
     float magnitude = sqrtf(x * x + y * y);
-    float acceleration;
-    if (magnitude < CONFIG_PMW3610_PRECISION_THRESHOLD) {
-        // For very small movements, apply no acceleration
-        acceleration = 1.0f;
-    } else {
-        // Gradual acceleration for larger movements
-        acceleration = 1.0f + powf((magnitude - CONFIG_PMW3610_PRECISION_THRESHOLD) / (CONFIG_PMW3610_ACCELERATION_THRESHOLD - CONFIG_PMW3610_PRECISION_THRESHOLD), 2);
-    }
-
+    float acceleration = 1.0f + (magnitude / CONFIG_PMW3610_ACCELERATION_THRESHOLD);
     x *= acceleration;
     y *= acceleration;
 
-    // Apply minimum movement threshold
-    if (fabsf(x) < CONFIG_PMW3610_MIN_MOVEMENT_THRESHOLD) {
-        x = 0;
-    }
-    if (fabsf(y) < CONFIG_PMW3610_MIN_MOVEMENT_THRESHOLD) {
-        y = 0;
-    }
-
-    // Apply moving average filter
-    data->prev_x[data->filter_index] = x;
-    data->prev_y[data->filter_index] = y;
-    data->filter_index = (data->filter_index + 1) % 3;
-
-    float avg_x = (data->prev_x[0] + data->prev_x[1] + data->prev_x[2]) / 3.0f;
-    float avg_y = (data->prev_y[0] + data->prev_y[1] + data->prev_y[2]) / 3.0f;
-
-    int16_t final_x = (int16_t)roundf(avg_x);
-    int16_t final_y = (int16_t)roundf(avg_y);
+    int16_t final_x = (int16_t)x;
+    int16_t final_y = (int16_t)y;
 
     // Apply orientation and inversion
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
@@ -711,35 +687,34 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
                                   uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
-
-    set_interrupt(dev, false);
-
-    // submit the real handler work
-    k_work_submit(&data->trigger_work);
-}
-
-static void pmw3610_work_callback(struct k_work *work) {
-    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
-    const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
-    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
+    int64_t current_time = k_uptime_get();
+    if (current_time - data->last_interrupt_time < DEBOUNCE_TIME_MS) {
+        // Debounce: ignore rapid changes
+        return;
+    }
+    data->last_interrupt_time = current_time;
+
+    bool trackball_enabled = config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio);
+
+    if (trackball_enabled) {
+        if (!data->active_layer_enabled) {
+            zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
+            zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
+            data->active_layer_enabled = true;
+        }
         pmw3610_report_data(dev);
+    } else {
+        if (data->active_layer_enabled) {
+            zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
+            zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
+            data->active_layer_enabled = false;
+        }
     }
 
-    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-        // Trackball is enabled, activate the desired layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
-        // Deactivate the deactive layer
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
-    } else {
-        // Trackball is disabled, activate the deactive layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
-        // Deactivate the active layer
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
-    }
-    
-    set_interrupt(dev, true);
+    // Re-enable interrupt
+    gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
 }
 
 static int pmw3610_init_irq(const struct device *dev) {
@@ -781,6 +756,10 @@ static int pmw3610_init(const struct device *dev) {
     struct pixart_data *data = dev->data;
     const struct pixart_config *config = dev->config;
     int err;
+
+    struct pixart_data *data = dev->data;
+    data->active_layer_enabled = false;
+    data->last_interrupt_time = 0;
 
     // init device pointer
     data->dev = dev;
