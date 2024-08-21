@@ -595,9 +595,13 @@ static int pmw3610_report_data(const struct device *dev) {
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         // Trackball is enabled, activate the desired layer
         zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
+        // Deactivate the deactive layer
+        zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
     } else {
-        // Trackball is disabled, deactivate all layers except the base layer
+        // Trackball is disabled, activate the deactive layer
         zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
+        // Deactivate the active layer
+        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
     }
 
     switch (input_mode) {
