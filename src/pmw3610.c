@@ -592,18 +592,6 @@ static int pmw3610_report_data(const struct device *dev) {
     enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
     bool input_mode_changed = data->curr_mode != input_mode;
 
-    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-        // Trackball is enabled, activate the desired layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
-        // Deactivate the deactive layer
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
-    } else {
-        // Trackball is disabled, activate the deactive layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
-        // Deactivate the active layer
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
-    }
-
     switch (input_mode) {
     case MOVE:
         set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
@@ -713,6 +701,18 @@ static void pmw3610_work_callback(struct k_work *work) {
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
+    }
+
+    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
+        // Trackball is enabled, activate the desired layer
+        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
+        // Deactivate the deactive layer
+        zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
+    } else {
+        // Trackball is disabled, activate the deactive layer
+        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
+        // Deactivate the active layer
+        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
     }
     
     set_interrupt(dev, true);
