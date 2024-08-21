@@ -477,8 +477,8 @@ static int pmw3610_async_init_configure(const struct device *dev) {
 
     // set performace register: run mode, vel_rate, poshi_rate, poslo_rate
     if (!err) {
-        err = reg_write(dev, PMW3610_REG_PERFORMANCE, PMW3610_PERFORMANCE_VALUE);
-        LOG_INF("Set performance register (reg value 0x%x)", PMW3610_PERFORMANCE_VALUE);
+        err = reg_write(dev, PMW3610_REG_PERFORMANCE, PMW3610_PERFORMANCE_VALUE | 0x01);  // 0x01 for 500Hz polling rate
+        LOG_INF("Set performance register (reg value 0x%x)", PMW3610_PERFORMANCE_VALUE | 0x01);
     }
 
     // required downshift and rate registers
@@ -626,14 +626,38 @@ static int pmw3610_report_data(const struct device *dev) {
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
 
-    // Apply non-linear acceleration curve
+    // Apply non-linear acceleration curve with precision threshold
     float magnitude = sqrtf(x * x + y * y);
-    float acceleration = 1.0f + (magnitude / CONFIG_PMW3610_ACCELERATION_THRESHOLD);
+    float acceleration;
+    if (magnitude < CONFIG_PMW3610_PRECISION_THRESHOLD) {
+        // For very small movements, apply no acceleration
+        acceleration = 1.0f;
+    } else {
+        // Gradual acceleration for larger movements
+        acceleration = 1.0f + powf((magnitude - CONFIG_PMW3610_PRECISION_THRESHOLD) / (CONFIG_PMW3610_ACCELERATION_THRESHOLD - CONFIG_PMW3610_PRECISION_THRESHOLD), 2);
+    }
+
     x *= acceleration;
     y *= acceleration;
 
-    int16_t final_x = (int16_t)x;
-    int16_t final_y = (int16_t)y;
+    // Apply minimum movement threshold
+    if (fabsf(x) < CONFIG_PMW3610_MIN_MOVEMENT_THRESHOLD) {
+        x = 0;
+    }
+    if (fabsf(y) < CONFIG_PMW3610_MIN_MOVEMENT_THRESHOLD) {
+        y = 0;
+    }
+
+    // Apply moving average filter
+    data->prev_x[data->filter_index] = x;
+    data->prev_y[data->filter_index] = y;
+    data->filter_index = (data->filter_index + 1) % 3;
+
+    float avg_x = (data->prev_x[0] + data->prev_x[1] + data->prev_x[2]) / 3.0f;
+    float avg_y = (data->prev_y[0] + data->prev_y[1] + data->prev_y[2]) / 3.0f;
+
+    int16_t final_x = (int16_t)roundf(avg_x);
+    int16_t final_y = (int16_t)roundf(avg_y);
 
     // Apply orientation and inversion
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
