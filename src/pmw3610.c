@@ -548,16 +548,29 @@ static void pmw3610_async_init(struct k_work *work) {
 struct k_timer automouse_layer_timer;
 static bool automouse_triggered = false;
 
-static void activate_automouse_layer() {
-    automouse_triggered = true;
-    zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
-    k_timer_start(&automouse_layer_timer, K_MSEC(CONFIG_PMW3610_AUTOMOUSE_TIMEOUT_MS), K_NO_WAIT);
+static void update_automouse_layer(const struct device *dev) {
+    const struct pixart_config *config = dev->config;
+    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
+
+    if (pin_active && !automouse_active) {
+        zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
+        automouse_active = true;
+    } else if (!pin_active && automouse_active) {
+        zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
+        automouse_active = false;
+    }
 }
 
-static void deactivate_automouse_layer(struct k_timer *timer) {
-    automouse_triggered = false;
-    zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
-}
+// static void activate_automouse_layer() {
+//     automouse_triggered = true;
+//     zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
+//     k_timer_start(&automouse_layer_timer, K_MSEC(CONFIG_PMW3610_AUTOMOUSE_TIMEOUT_MS), K_NO_WAIT);
+// }
+
+// static void deactivate_automouse_layer(struct k_timer *timer) {
+//     automouse_triggered = false;
+//     zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
+// }
 
 K_TIMER_DEFINE(automouse_layer_timer, deactivate_automouse_layer, NULL);
 #endif
@@ -705,6 +718,10 @@ static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
+
+    #if AUTOMOUSE_LAYER > 0
+    update_automouse_layer(dev);
+    #endif
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
