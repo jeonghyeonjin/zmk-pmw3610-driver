@@ -548,53 +548,23 @@ static void pmw3610_async_init(struct k_work *work) {
 struct k_timer automouse_layer_timer;
 static bool automouse_triggered = false;
 static bool automouse_active = false;
-static struct k_work_delayable check_pin_work;
-#define CHECK_INTERVAL K_MSEC(100)  // 100ms마다 체크
+static struct gpio_callback gpio_cb;
 
-static void check_pin_state(struct k_work *work)
+static void gpio_callback_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-    const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zmk_pmw3610));
-    const struct pixart_config *config = dev->config;
-    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
-
-    if (!pin_active && automouse_active) {
-        if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
-            LOG_INF("Automouse layer deactivated by periodic check");
-            automouse_active = false;
-        } else {
-            LOG_ERR("Failed to deactivate automouse layer in periodic check");
-        }
-    }
-
-    if (automouse_active) {
-        // 레이어가 여전히 활성화되어 있다면 다음 체크를 스케줄
-        k_work_schedule(&check_pin_work, CHECK_INTERVAL);
-    }
+    update_automouse_layer(pmw3610_dev);
 }
 
-static void update_automouse_layer(const struct device *dev)
-{
+static void update_automouse_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
 
     if (pin_active && !automouse_active) {
-        if (zmk_keymap_layer_activate(AUTOMOUSE_LAYER) == 0) {
-            LOG_INF("Automouse layer activated");
-            automouse_active = true;
-            // 레이어 활성화 시 주기적 체크 시작
-            k_work_schedule(&check_pin_work, CHECK_INTERVAL);
-        } else {
-            LOG_ERR("Failed to activate automouse layer");
-        }
+        zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
+        automouse_active = true;
     } else if (!pin_active && automouse_active) {
-        if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
-            LOG_INF("Automouse layer deactivated");
-            automouse_active = false;
-            // 레이어 비활성화 시 주기적 체크 취소
-            k_work_cancel_delayable(&check_pin_work);
-        } else {
-            LOG_ERR("Failed to deactivate automouse layer");
-        }
+        zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
+        automouse_active = false;
     }
 }
 
@@ -751,15 +721,10 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     k_work_submit(&data->trigger_work);
 }
 
-static void pmw3610_work_callback(struct k_work *work)
-{
+static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
-
-    #if AUTOMOUSE_LAYER > 0
-    update_automouse_layer(dev);
-    #endif
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
@@ -797,12 +762,6 @@ static int pmw3610_init_irq(const struct device *dev) {
     }
 
     LOG_INF("Configure irq done");
-
-    err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
-    if (err) {
-        LOG_ERR("Cannot configure IRQ GPIO");
-        return err;
-    }
 
     return err;
 }
@@ -849,8 +808,31 @@ static int pmw3610_init(const struct device *dev) {
         return err;
     }
 
+    pmw3610_dev = dev;
+
     #if AUTOMOUSE_LAYER > 0
-    k_work_init_delayable(&check_pin_work, check_pin_state);
+    // GPIO 인터럽트 설정
+    err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_INT_EDGE_BOTH);
+    if (err) {
+        LOG_ERR("Failed to configure enable GPIO");
+        return err;
+    }
+
+    gpio_init_callback(&gpio_cb, gpio_callback_handler, BIT(config->enable_gpio.pin));
+    err = gpio_add_callback(config->enable_gpio.port, &gpio_cb);
+    if (err) {
+        LOG_ERR("Failed to add GPIO callback");
+        return err;
+    }
+
+    err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
+    if (err) {
+        LOG_ERR("Failed to configure GPIO interrupt");
+        return err;
+    }
+
+    // 초기 상태 확인
+    update_automouse_layer(dev);
     #endif
 
     // Setup delayable and non-blocking init jobs, including following steps:
