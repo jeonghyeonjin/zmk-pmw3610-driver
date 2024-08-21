@@ -597,10 +597,7 @@ static int pmw3610_report_data(const struct device *dev) {
         zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
     } else {
         // Trackball is disabled, deactivate all layers except the base layer
-        for (int i = 1; i <= CONFIG_PMW3610_ACTIVE_LAYER; i++) {
-            zmk_keymap_layer_deactivate(i);
-        }
-        input_mode = MOVE; // Force MOVE mode when trackball is disabled
+        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
     }
 
     switch (input_mode) {

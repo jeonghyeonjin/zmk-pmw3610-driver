@@ -129,6 +129,12 @@ config PMW3610_ACTIVE_LAYER
     help
       Specifies which layer should be activated when the trackball is enabled.
 
+config PMW3610_DEACTIVE_LAYER
+    int "Layer to activate when trackball is disabled"
+    default 0
+    help
+      Specifies which layer should be activated when the trackball is disabled.
+
 config PMW3610_ACCELERATION_THRESHOLD
     int "Acceleration threshold for mouse movement"
     default 5
