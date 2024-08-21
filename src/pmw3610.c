@@ -16,6 +16,7 @@
 #include <zmk/keymap.h>
 #include "pmw3610.h"
 #include <math.h>
+#include <zephyr/drivers/gpio.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
@@ -543,6 +544,8 @@ static void pmw3610_async_init(struct k_work *work) {
     }
 }
 
+static const struct device *pmw3610_dev;
+
 #define AUTOMOUSE_LAYER (DT_PROP(DT_DRV_INST(0), automouse_layer))
 #if AUTOMOUSE_LAYER > 0
 struct k_timer automouse_layer_timer;
@@ -550,23 +553,40 @@ static bool automouse_triggered = false;
 static bool automouse_active = false;
 static struct gpio_callback gpio_cb;
 
+// Function declaration
+static void update_automouse_layer(const struct device *dev);
+
 static void gpio_callback_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
-    update_automouse_layer(pmw3610_dev);
+    if (pmw3610_dev) {
+        update_automouse_layer(pmw3610_dev);
+    } else {
+        LOG_ERR("PMW3610 device not initialized");
+    }
 }
 
-static void update_automouse_layer(const struct device *dev) {
+static void update_automouse_layer(const struct device *dev)
+{
     const struct pixart_config *config = dev->config;
     bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
 
     if (pin_active && !automouse_active) {
-        zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
-        automouse_active = true;
+        if (zmk_keymap_layer_activate(AUTOMOUSE_LAYER) == 0) {
+            LOG_INF("Automouse layer activated");
+            automouse_active = true;
+        } else {
+            LOG_ERR("Failed to activate automouse layer");
+        }
     } else if (!pin_active && automouse_active) {
-        zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
-        automouse_active = false;
+        if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
+            LOG_INF("Automouse layer deactivated");
+            automouse_active = false;
+        } else {
+            LOG_ERR("Failed to deactivate automouse layer");
+        }
     }
 }
+#endif
 
 // static void activate_automouse_layer() {
 //     automouse_triggered = true;
