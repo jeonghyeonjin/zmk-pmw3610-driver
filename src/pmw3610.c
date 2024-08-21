@@ -551,14 +551,15 @@ static bool automouse_active = false;
 
 static void update_automouse_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
+    struct pixart_data *data = dev->data;
     bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
 
-    if (pin_active && !automouse_active) {
+    if (pin_active && !data->automouse_active) {
         zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
-        automouse_active = true;
-    } else if (!pin_active && automouse_active) {
+        data->automouse_active = true;
+    } else if (!pin_active && data->automouse_active) {
         zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
-        automouse_active = false;
+        data->automouse_active = false;
     }
 }
 
@@ -710,13 +711,13 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct pixart_config *config = dev->config;
 
     if (pins & BIT(config->enable_gpio.pin)) {
-        // Enable GPIO 상태 변화 처리
+        // 즉시 automouse 레이어 상태 업데이트
         update_automouse_layer(dev);
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
-        // submit the real handler work
+        // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
     }
 }
@@ -725,9 +726,6 @@ static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
-
-    // 작업 콜백에서도 레이어 상태 재확인
-    update_automouse_layer(dev);
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
@@ -778,13 +776,16 @@ static int pmw3610_init(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     int err;
 
-    // init device pointer
+    // 디바이스 포인터 초기화
     data->dev = dev;
 
-    // init smart algorithm flag;
+    // smart algorithm 플래그 초기화
     data->sw_smart_flag = false;
 
-    // init trigger handler work
+    // automouse 활성 상태 초기화
+    data->automouse_active = false;
+
+    // 트리거 핸들러 작업 초기화
     k_work_init(&data->trigger_work, pmw3610_work_callback);
 
     if (config->enable_gpio.port) {
@@ -794,7 +795,7 @@ static int pmw3610_init(const struct device *dev) {
             return err;
         }
 
-        // GPIO 인터럽트 설정 추가
+        // GPIO 인터럽트 설정
         err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
         if (err) {
             LOG_ERR("Cannot configure GPIO interrupt");
@@ -811,7 +812,7 @@ static int pmw3610_init(const struct device *dev) {
         }
     }
 
-    // check readiness of cs gpio pin and init it to inactive
+    // CS GPIO 핀 준비 상태 확인 및 비활성 상태로 초기화
     if (!device_is_ready(config->cs_gpio.port)) {
         LOG_ERR("SPI CS device not ready");
         return -ENODEV;
@@ -823,21 +824,22 @@ static int pmw3610_init(const struct device *dev) {
         return err;
     }
 
-    // init irq routine
+    // IRQ 루틴 초기화
     err = pmw3610_init_irq(dev);
     if (err) {
         return err;
     }
 
-    // Setup delayable and non-blocking init jobs, including following steps:
-    // 1. power reset
-    // 2. upload initial settings
-    // 3. other configs like cpi, downshift time, sample time etc.
-    // The sensor is ready to work (i.e., data->ready=true after the above steps are finished)
+    // 지연 가능하고 비차단 초기화 작업 설정
+    // 1. 전원 리셋
+    // 2. 초기 설정 업로드
+    // 3. CPI, downshift 시간, 샘플 시간 등의 기타 구성
+    // 센서는 위 단계들이 완료된 후 작동 준비 상태가 됨 (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
+    // 초기 automouse 레이어 상태 설정
     update_automouse_layer(dev);
 
     return err;
