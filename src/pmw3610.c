@@ -704,6 +704,13 @@ static int pmw3610_report_data(const struct device *dev) {
     return 0;
 }
 
+static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
+    const struct device *dev = data->dev;
+    
+    update_automouse_layer(dev);
+}
+
 static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
                                   uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
@@ -711,8 +718,8 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct pixart_config *config = dev->config;
 
     if (pins & BIT(config->enable_gpio.pin)) {
-        // 즉시 automouse 레이어 상태 업데이트
-        update_automouse_layer(dev);
+        // enable GPIO 변화 처리를 위한 work 제출
+        k_work_submit(&data->enable_gpio_work);
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
@@ -726,8 +733,6 @@ static void pmw3610_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
-
-    update_automouse_layer(dev);
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
@@ -803,6 +808,9 @@ static int pmw3610_init(const struct device *dev) {
 
     // 트리거 핸들러 작업 초기화
     k_work_init(&data->trigger_work, pmw3610_work_callback);
+
+    // enable GPIO 작업 초기화
+    k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
 
     if (config->enable_gpio.port) {
         err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);

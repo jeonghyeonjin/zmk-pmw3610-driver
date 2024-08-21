@@ -38,6 +38,7 @@ struct pixart_data {
     struct gpio_callback irq_gpio_cb;
     // the work structure holding the trigger job
     struct k_work trigger_work;
+    struct k_work enable_gpio_work;
 
     // the work structure for delayable init steps
     struct k_work_delayable init_work;
