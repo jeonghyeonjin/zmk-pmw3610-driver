@@ -756,14 +756,18 @@ static int pmw3610_init(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     int err;
 
-    data->active_layer_enabled = false;
-    data->last_interrupt_time = 0;
+    // init device pointer
+    data->dev = dev;
 
     // init smart algorithm flag;
     data->sw_smart_flag = false;
 
-    // init trigger handler work
-    k_work_init(&data->trigger_work, pmw3610_work_callback);
+    // 이전의 work 초기화 코드를 제거하고 GPIO 인터럽트 설정으로 대체
+    err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
+    if (err) {
+        LOG_ERR("Cannot configure IRQ GPIO");
+        return err;
+    }
 
     if (config->enable_gpio.port) {
         err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);
