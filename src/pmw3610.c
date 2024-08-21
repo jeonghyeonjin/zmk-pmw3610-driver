@@ -547,6 +547,7 @@ static void pmw3610_async_init(struct k_work *work) {
 #if AUTOMOUSE_LAYER > 0
 struct k_timer automouse_layer_timer;
 static bool automouse_triggered = false;
+static bool automouse_active = false;
 
 static void update_automouse_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
