@@ -580,6 +580,7 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     const struct pixart_config *config = dev->config;
+    uint8_t buf[PMW3610_BURST_SIZE];
 
     if (unlikely(!data->ready)) {
         LOG_WRN("Device is not initialized yet");
