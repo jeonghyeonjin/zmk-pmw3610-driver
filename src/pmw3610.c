@@ -580,7 +580,6 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
 
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
-    const struct pixart_config *config = dev->config;
     uint8_t buf[PMW3610_BURST_SIZE];
 
     if (unlikely(!data->ready)) {
@@ -757,12 +756,8 @@ static int pmw3610_init(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     int err;
 
-    struct pixart_data *data = dev->data;
     data->active_layer_enabled = false;
     data->last_interrupt_time = 0;
-
-    // init device pointer
-    data->dev = dev;
 
     // init smart algorithm flag;
     data->sw_smart_flag = false;
