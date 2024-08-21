@@ -791,32 +791,60 @@ static int pmw3610_init(const struct device *dev) {
     // automouse 활성 상태 초기화
     data->automouse_active = false;
 
-    // 트리거 핸들러 작업 초기화
+    LOG_INF("Initializing trigger_work");
     k_work_init(&data->trigger_work, pmw3610_work_callback);
 
-    // enable GPIO 작업 초기화
+    LOG_INF("Initializing enable_gpio_work");
     k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
 
     if (config->enable_gpio.port) {
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);
+        LOG_INF("Configuring enable GPIO");
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
         if (err) {
-            LOG_ERR("Cannot configure enable GPIO");
+            LOG_ERR("Cannot configure enable GPIO, error: %d", err);
             return err;
         }
 
-        // GPIO 인터럽트 설정
+        LOG_INF("Configuring enable GPIO interrupt");
         err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
         if (err) {
-            LOG_ERR("Cannot configure GPIO interrupt");
+            LOG_ERR("Cannot configure enable GPIO interrupt, error: %d", err);
+            return err;
+        }
+    }
+
+    if (config->irq_gpio.port) {
+        LOG_INF("Configuring IRQ GPIO");
+        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
             return err;
         }
 
-        // GPIO 콜백 초기화 및 추가
-        gpio_init_callback(&data->irq_gpio_cb, pmw3610_gpio_callback, 
-                           BIT(config->irq_gpio.pin) | BIT(config->enable_gpio.pin));
+        LOG_INF("Configuring IRQ GPIO interrupt");
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_FALLING);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
+            return err;
+        }
+    }
+
+    LOG_INF("Initializing GPIO callback");
+    gpio_init_callback(&data->irq_gpio_cb, pmw3610_gpio_callback, 
+                       BIT(config->irq_gpio.pin) | BIT(config->enable_gpio.pin));
+    
+    if (config->enable_gpio.port) {
         err = gpio_add_callback(config->enable_gpio.port, &data->irq_gpio_cb);
         if (err) {
-            LOG_ERR("Cannot add GPIO callback");
+            LOG_ERR("Cannot add enable GPIO callback, error: %d", err);
+            return err;
+        }
+    }
+    
+    if (config->irq_gpio.port) {
+        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
+        if (err) {
+            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
             return err;
         }
     }
@@ -829,13 +857,7 @@ static int pmw3610_init(const struct device *dev) {
 
     err = gpio_pin_configure_dt(&config->cs_gpio, GPIO_OUTPUT_INACTIVE);
     if (err) {
-        LOG_ERR("Cannot configure SPI CS GPIO");
-        return err;
-    }
-
-    // IRQ 루틴 초기화
-    err = pmw3610_init_irq(dev);
-    if (err) {
+        LOG_ERR("Cannot configure SPI CS GPIO, error: %d", err);
         return err;
     }
 
@@ -846,11 +868,14 @@ static int pmw3610_init(const struct device *dev) {
     // 센서는 위 단계들이 완료된 후 작동 준비 상태가 됨 (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
+    LOG_INF("Scheduling async init work");
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
     // 초기 automouse 레이어 상태 설정
+    LOG_INF("Setting initial automouse layer state");
     update_automouse_layer(dev);
 
+    LOG_INF("Initialization complete");
     return err;
 }
 
