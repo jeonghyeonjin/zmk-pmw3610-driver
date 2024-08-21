@@ -548,24 +548,41 @@ static void pmw3610_async_init(struct k_work *work) {
 struct k_timer automouse_layer_timer;
 static bool automouse_triggered = false;
 static bool automouse_active = false;
-static uint32_t last_change_time = 0;
-#define DEBOUNCE_TIME_MS 50  // 50ms 디바운스 시간
+static struct k_work_delayable check_pin_work;
+#define CHECK_INTERVAL K_MSEC(100)  // 100ms마다 체크
 
-static void update_automouse_layer(const struct device *dev) {
+static void check_pin_state(struct k_work *work)
+{
+    const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zmk_pmw3610));
     const struct pixart_config *config = dev->config;
     bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
-    uint32_t current_time = k_uptime_get_32();
 
-    // 디바운스 체크
-    if (current_time - last_change_time < DEBOUNCE_TIME_MS) {
-        return;
+    if (!pin_active && automouse_active) {
+        if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
+            LOG_INF("Automouse layer deactivated by periodic check");
+            automouse_active = false;
+        } else {
+            LOG_ERR("Failed to deactivate automouse layer in periodic check");
+        }
     }
+
+    if (automouse_active) {
+        // 레이어가 여전히 활성화되어 있다면 다음 체크를 스케줄
+        k_work_schedule(&check_pin_work, CHECK_INTERVAL);
+    }
+}
+
+static void update_automouse_layer(const struct device *dev)
+{
+    const struct pixart_config *config = dev->config;
+    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
 
     if (pin_active && !automouse_active) {
         if (zmk_keymap_layer_activate(AUTOMOUSE_LAYER) == 0) {
             LOG_INF("Automouse layer activated");
             automouse_active = true;
-            last_change_time = current_time;
+            // 레이어 활성화 시 주기적 체크 시작
+            k_work_schedule(&check_pin_work, CHECK_INTERVAL);
         } else {
             LOG_ERR("Failed to activate automouse layer");
         }
@@ -573,7 +590,8 @@ static void update_automouse_layer(const struct device *dev) {
         if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
             LOG_INF("Automouse layer deactivated");
             automouse_active = false;
-            last_change_time = current_time;
+            // 레이어 비활성화 시 주기적 체크 취소
+            k_work_cancel_delayable(&check_pin_work);
         } else {
             LOG_ERR("Failed to deactivate automouse layer");
         }
@@ -733,7 +751,8 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     k_work_submit(&data->trigger_work);
 }
 
-static void pmw3610_work_callback(struct k_work *work) {
+static void pmw3610_work_callback(struct k_work *work)
+{
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
@@ -745,15 +764,6 @@ static void pmw3610_work_callback(struct k_work *work) {
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
     }
-    
-    // 추가적인 상태 확인
-    #if AUTOMOUSE_LAYER > 0
-    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
-    if (pin_active != automouse_active) {
-        LOG_WRN("Pin state and layer state mismatch. Updating...");
-        update_automouse_layer(dev);
-    }
-    #endif
 
     set_interrupt(dev, true);
 }
@@ -838,6 +848,10 @@ static int pmw3610_init(const struct device *dev) {
     if (err) {
         return err;
     }
+
+    #if AUTOMOUSE_LAYER > 0
+    k_work_init_delayable(&check_pin_work, check_pin_state);
+    #endif
 
     // Setup delayable and non-blocking init jobs, including following steps:
     // 1. power reset
