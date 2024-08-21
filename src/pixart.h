@@ -50,6 +50,9 @@ struct pixart_data {
 
     // for pmw3610 smart algorithm
     bool sw_smart_flag;
+
+    // Add this new member
+    bool automouse_active;
 };
 
 // device config data structure
