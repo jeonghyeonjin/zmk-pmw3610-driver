@@ -707,13 +707,18 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
                                   uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
+    const struct pixart_config *config = dev->config;
 
-    set_interrupt(dev, false);
+    if (pins & BIT(config->enable_gpio.pin)) {
+        // Enable GPIO 상태 변화 처리
+        update_automouse_layer(dev);
+    }
 
-    update_automouse_layer(dev);
-
-    // submit the real handler work
-    k_work_submit(&data->trigger_work);
+    if (pins & BIT(config->irq_gpio.pin)) {
+        set_interrupt(dev, false);
+        // submit the real handler work
+        k_work_submit(&data->trigger_work);
+    }
 }
 
 static void pmw3610_work_callback(struct k_work *work) {
@@ -797,8 +802,9 @@ static int pmw3610_init(const struct device *dev) {
         }
 
         // GPIO 콜백 초기화 및 추가
-        gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
-        err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
+        gpio_init_callback(&data->irq_gpio_cb, pmw3610_gpio_callback, 
+                           BIT(config->irq_gpio.pin) | BIT(config->enable_gpio.pin));
+        err = gpio_add_callback(config->enable_gpio.port, &data->irq_gpio_cb);
         if (err) {
             LOG_ERR("Cannot add GPIO callback");
             return err;
@@ -835,15 +841,6 @@ static int pmw3610_init(const struct device *dev) {
     update_automouse_layer(dev);
 
     return err;
-}
-
-static void pmw3610_enable_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-    struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
-    const struct device *pmw3610_dev = data->dev;
-
-    // GPIO 상태 변화 시 즉시 레이어 업데이트
-    update_automouse_layer(pmw3610_dev);
 }
 
 #define PMW3610_DEFINE(n)                                                                          \
