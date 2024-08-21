@@ -711,6 +711,8 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
 
     set_interrupt(dev, false);
 
+    update_automouse_layer(dev);
+
     // submit the real handler work
     k_work_submit(&data->trigger_work);
 }
@@ -720,9 +722,8 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
-    #if AUTOMOUSE_LAYER > 0
+    // 작업 콜백에서도 레이어 상태 재확인
     update_automouse_layer(dev);
-    #endif
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
