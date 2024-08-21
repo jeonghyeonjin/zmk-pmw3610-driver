@@ -710,12 +710,12 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
-    if (pins & BIT(config->enable_gpio.pin)) {
+    if (pins & config->enable_gpio.pin) {
         // 즉시 automouse 레이어 상태 업데이트
         update_automouse_layer(dev);
     }
 
-    if (pins & BIT(config->irq_gpio.pin)) {
+    if (pins & config->irq_gpio.pin) {
         set_interrupt(dev, false);
         // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
