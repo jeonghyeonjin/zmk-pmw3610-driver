@@ -21,6 +21,8 @@ enum pixart_input_mode { MOVE = 0, SCROLL, SNIPE };
 struct pixart_data {
     const struct device *dev;
 
+    struct gpio_callback enable_gpio_cb;
+
     enum pixart_input_mode curr_mode;
     uint32_t curr_cpi;
     int32_t scroll_delta_x;

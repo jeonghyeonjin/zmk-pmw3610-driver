@@ -789,6 +789,21 @@ static int pmw3610_init(const struct device *dev) {
             LOG_ERR("Cannot configure enable GPIO");
             return err;
         }
+
+        // GPIO 인터럽트 설정 추가
+        err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
+        if (err) {
+            LOG_ERR("Cannot configure GPIO interrupt");
+            return err;
+        }
+
+        // GPIO 콜백 초기화 및 추가
+        gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
+        err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
+        if (err) {
+            LOG_ERR("Cannot add GPIO callback");
+            return err;
+        }
     }
 
     // check readiness of cs gpio pin and init it to inactive
@@ -821,6 +836,15 @@ static int pmw3610_init(const struct device *dev) {
     update_automouse_layer(dev);
 
     return err;
+}
+
+static void pmw3610_enable_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+    struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
+    const struct device *pmw3610_dev = data->dev;
+
+    // GPIO 상태 변화 시 즉시 레이어 업데이트
+    update_automouse_layer(pmw3610_dev);
 }
 
 #define PMW3610_DEFINE(n)                                                                          \
