@@ -18,6 +18,7 @@
 #include <math.h>
 
 #include <zephyr/logging/log.h>
+LOG_MODULE_DECLARE(pmw3610, CONFIG_SENSOR_LOG_LEVEL);
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 
 //////// Sensor initialization steps definition //////////
@@ -548,17 +549,35 @@ static void pmw3610_async_init(struct k_work *work) {
 struct k_timer automouse_layer_timer;
 static bool automouse_triggered = false;
 static bool automouse_active = false;
+static uint32_t last_change_time = 0;
+#define DEBOUNCE_TIME_MS 50  // 50ms 디바운스 시간
 
 static void update_automouse_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
+    uint32_t current_time = k_uptime_get_32();
+
+    // 디바운스 체크
+    if (current_time - last_change_time < DEBOUNCE_TIME_MS) {
+        return;
+    }
 
     if (pin_active && !automouse_active) {
-        zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
-        automouse_active = true;
+        if (zmk_keymap_layer_activate(AUTOMOUSE_LAYER) == 0) {
+            LOG_INF("Automouse layer activated");
+            automouse_active = true;
+            last_change_time = current_time;
+        } else {
+            LOG_ERR("Failed to activate automouse layer");
+        }
     } else if (!pin_active && automouse_active) {
-        zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
-        automouse_active = false;
+        if (zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER) == 0) {
+            LOG_INF("Automouse layer deactivated");
+            automouse_active = false;
+            last_change_time = current_time;
+        } else {
+            LOG_ERR("Failed to deactivate automouse layer");
+        }
     }
 }
 
@@ -728,6 +747,15 @@ static void pmw3610_work_callback(struct k_work *work) {
         pmw3610_report_data(dev);
     }
     
+    // 추가적인 상태 확인
+    #if AUTOMOUSE_LAYER > 0
+    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
+    if (pin_active != automouse_active) {
+        LOG_WRN("Pin state and layer state mismatch. Updating...");
+        update_automouse_layer(dev);
+    }
+    #endif
+
     set_interrupt(dev, true);
 }
 
@@ -760,6 +788,12 @@ static int pmw3610_init_irq(const struct device *dev) {
     }
 
     LOG_INF("Configure irq done");
+
+    err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
+    if (err) {
+        LOG_ERR("Cannot configure IRQ GPIO");
+        return err;
+    }
 
     return err;
 }
