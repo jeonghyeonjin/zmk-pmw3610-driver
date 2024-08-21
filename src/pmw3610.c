@@ -720,6 +720,10 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
+    #if AUTOMOUSE_LAYER > 0
+    update_automouse_layer(dev);
+    #endif
+
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
     }
@@ -811,9 +815,7 @@ static int pmw3610_init(const struct device *dev) {
 
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
-    #if AUTOMOUSE_LAYER > 0
     update_automouse_layer(dev);
-    #endif
 
     return err;
 }
