@@ -610,6 +610,14 @@ static int pmw3610_report_data(const struct device *dev) {
         return -ENOTSUP;
     }
 
+    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
+        // Trackball is enabled, activate the desired layer
+        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
+    } else {
+        // Trackball is disabled, deactivate the layer
+        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
+    }
+
     data->curr_mode = input_mode;
 
 #if AUTOMOUSE_LAYER > 0

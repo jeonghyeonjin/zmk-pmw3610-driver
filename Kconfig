@@ -123,6 +123,12 @@ config PMW3610_REST3_SAMPLE_TIME_MS
       Minimum value is 10.
       No optimal value provided by datasheet.
 
+config PMW3610_ACTIVE_LAYER
+    int "Layer to activate when trackball is enabled"
+    default 5
+    help
+      Specifies which layer should be activated when the trackball is enabled.
+
 choice
     prompt "Select PMW3610 sensor orientation"
     default PMW3610_ORIENTATION_0
