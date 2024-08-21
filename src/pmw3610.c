@@ -580,6 +580,7 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
 
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
+    const struct pixart_config *config = dev->config;
     uint8_t buf[PMW3610_BURST_SIZE];
 
     if (unlikely(!data->ready)) {
@@ -686,34 +687,23 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
                                   uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
+
+    set_interrupt(dev, false);
+
+    // submit the real handler work
+    k_work_submit(&data->trigger_work);
+}
+
+static void pmw3610_work_callback(struct k_work *work) {
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, trigger_work);
+    const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
-    int64_t current_time = k_uptime_get();
-    if (current_time - data->last_interrupt_time < DEBOUNCE_TIME_MS) {
-        // Debounce: ignore rapid changes
-        return;
-    }
-    data->last_interrupt_time = current_time;
-
-    bool trackball_enabled = config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio);
-
-    if (trackball_enabled) {
-        if (!data->active_layer_enabled) {
-            zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
-            zmk_keymap_layer_deactivate(CONFIG_PMW3610_DEACTIVE_LAYER);
-            data->active_layer_enabled = true;
-        }
+    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
-    } else {
-        if (data->active_layer_enabled) {
-            zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
-            zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
-            data->active_layer_enabled = false;
-        }
     }
-
-    // Re-enable interrupt
-    gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
+    
+    set_interrupt(dev, true);
 }
 
 static int pmw3610_init_irq(const struct device *dev) {
@@ -762,12 +752,8 @@ static int pmw3610_init(const struct device *dev) {
     // init smart algorithm flag;
     data->sw_smart_flag = false;
 
-    // 이전의 work 초기화 코드를 제거하고 GPIO 인터럽트 설정으로 대체
-    err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
-    if (err) {
-        LOG_ERR("Cannot configure IRQ GPIO");
-        return err;
-    }
+    // init trigger handler work
+    k_work_init(&data->trigger_work, pmw3610_work_callback);
 
     if (config->enable_gpio.port) {
         err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);

@@ -48,9 +48,6 @@ struct pixart_data {
 
     // for pmw3610 smart algorithm
     bool sw_smart_flag;
-
-    bool active_layer_enabled;
-    int64_t last_interrupt_time;
 };
 
 // device config data structure
