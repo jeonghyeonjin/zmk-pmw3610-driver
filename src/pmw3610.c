@@ -736,22 +736,7 @@ static void pmw3610_work_callback(struct k_work *work) {
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
-    }
-
-    // enable_gpio 상태 확인 및 콜백 호출
-    if (config->enable_gpio.port) {
-        bool pin_state = gpio_pin_get_dt(&config->enable_gpio);
-        uint32_t pins = pin_state ? BIT(config->enable_gpio.pin) : 0;
-        pmw3610_gpio_callback(config->enable_gpio.port, &data->irq_gpio_cb, pins);
-    }
-
-    // 모션 데이터 처리
-    if (config->irq_gpio.port && gpio_pin_get_dt(&config->irq_gpio)) {
-        uint32_t pins = BIT(config->irq_gpio.pin);
-        pmw3610_gpio_callback(config->irq_gpio.port, &data->irq_gpio_cb, pins);
-    }
-
-    
+    } 
     set_interrupt(dev, true);
 }
 
