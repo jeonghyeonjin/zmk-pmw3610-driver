@@ -708,10 +708,6 @@ static void pmw3610_work_callback(struct k_work *work) {
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
-        // Trackball is enabled, activate the desired layer
-        zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER, true);
-    } else {
-        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER, false);
     }
     
     set_interrupt(dev, true);
