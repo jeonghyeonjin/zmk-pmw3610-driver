@@ -579,7 +579,7 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
 
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
-    uint8_t buf[PMW3610_BURST_SIZE];
+    const struct pixart_config *config = dev->config;
 
     if (unlikely(!data->ready)) {
         LOG_WRN("Device is not initialized yet");
@@ -609,6 +609,8 @@ static int pmw3610_report_data(const struct device *dev) {
     default:
         return -ENOTSUP;
     }
+
+    data->curr_mode = input_mode;
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         // Trackball is enabled, activate the desired layer
