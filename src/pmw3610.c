@@ -628,12 +628,19 @@ static int pmw3610_report_data(const struct device *dev) {
 
     // Apply non-linear acceleration curve
     float magnitude = sqrtf(x * x + y * y);
-    float acceleration = 1.0f + (magnitude / CONFIG_PMW3610_ACCELERATION_THRESHOLD);
+    float acceleration = 1.0f + (magnitude > CONFIG_PMW3610_ACCELERATION_THRESHOLD ? 
+                            (magnitude - CONFIG_PMW3610_ACCELERATION_THRESHOLD) / CONFIG_PMW3610_ACCELERATION_THRESHOLD : 
+                            0);
     x *= acceleration;
     y *= acceleration;
 
-    int16_t final_x = (int16_t)x;
-    int16_t final_y = (int16_t)y;
+    static float accum_x = 0, accum_y = 0;
+    accum_x += x;
+    accum_y += y;
+    int16_t final_x = (int16_t)accum_x;
+    int16_t final_y = (int16_t)accum_y;
+    accum_x -= final_x;
+    accum_y -= final_y;
 
     // Apply orientation and inversion
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
