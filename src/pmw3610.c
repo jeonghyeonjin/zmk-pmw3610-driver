@@ -711,7 +711,7 @@ static void pmw3610_work_callback(struct k_work *work) {
         // Trackball is enabled, activate the desired layer
         zmk_keymap_layer_activate(CONFIG_PMW3610_ACTIVE_LAYER);
     } else {
-        zmk_keymap_layer_deactivate(CONFIG_PMW3610_ACTIVE_LAYER);
+        zmk_keymap_layer_activate(CONFIG_PMW3610_DEACTIVE_LAYER);
     }
     
     set_interrupt(dev, true);
