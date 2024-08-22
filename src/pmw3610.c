@@ -754,6 +754,17 @@ static int pmw3610_report_data(const struct device *dev) {
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
     const struct device *dev = data->dev;
+    const struct pixart_config *config = dev->config;
+    
+    bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
+    
+    if (pin_active) {
+        // Enable sensor and interrupt
+        set_interrupt(dev, true);  // Activate interrupts
+    } else {
+        // Disable sensor and interrupt
+        set_interrupt(dev, false);  // Deactivate interrupts
+    }
     
     update_automouse_layer(dev);
 }
