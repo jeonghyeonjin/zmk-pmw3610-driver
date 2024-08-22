@@ -38,8 +38,6 @@ struct pixart_data {
     int16_t last_y;
 #endif
 
-    // motion interrupt isr
-    struct gpio_callback irq_gpio_cb;
     // the work structure holding the trigger job
     struct k_work trigger_work;
     struct k_work enable_gpio_work;
