@@ -623,11 +623,6 @@ static float apply_moving_average(float new_value, float* buffer) {
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     uint8_t buf[PMW3610_BURST_SIZE];
-    const struct pixart_config *config = dev->config;
-    
-    if (!gpio_pin_get_dt(&config->enable_gpio)) {
-        return 0;  // enable GPIO가 비활성화 상태면 처리하지 않음
-    }
 
     if (unlikely(!data->ready)) {
         LOG_WRN("Device is not initialized yet");
@@ -756,48 +751,10 @@ static int pmw3610_report_data(const struct device *dev) {
     return 0;
 }
 
-static void update_irq_gpio_config(const struct device *dev, bool enable) {
-    const struct pixart_config *config = dev->config;
-    struct pixart_data *data = dev->data;
-    int err;
-
-    if (enable) {
-        LOG_INF("Configuring IRQ GPIO");
-        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
-            return;
-        }
-
-        LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
-            return;
-        }
-
-        LOG_INF("Adding IRQ GPIO callback");
-        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
-        if (err) {
-            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
-            return;
-        }
-    } else {
-        LOG_INF("Disabling IRQ GPIO interrupt");
-        gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
-        
-        LOG_INF("Removing IRQ GPIO callback");
-        gpio_remove_callback(config->irq_gpio.port, &data->irq_gpio_cb);
-    }
-}
-
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
     const struct device *dev = data->dev;
-    const struct pixart_config *config = dev->config;
     
-    bool enable_state = gpio_pin_get_dt(&config->enable_gpio);
-    update_irq_gpio_config(dev, enable_state);
     update_automouse_layer(dev);
 }
 
@@ -808,14 +765,11 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct pixart_config *config = dev->config;
 
     if (pins & BIT(config->enable_gpio.pin)) {
-        // enable GPIO 변화 처리를 위한 work 제출
-        k_work_submit(&data->enable_gpio_work);
-    }
-
-    if (pins & BIT(config->irq_gpio.pin)) {
-        if (!config->enable_gpio.port || gpio_pin_get_dt(&config->enable_gpio)) {
-            set_interrupt(dev, false);
-            k_work_submit(&data->trigger_work);
+        if (pins & BIT(config->irq_gpio.pin)) {
+            if (!config->enable_gpio.port || gpio_pin_get_dt(&config->enable_gpio)) {
+                set_interrupt(dev, false);
+                k_work_submit(&data->trigger_work);
+            }
         }
     }
 }
@@ -880,6 +834,10 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
+
+    if (pins & BIT(config->enable_gpio.pin)) {
+        k_work_submit(&data->enable_gpio_work);
+    }
     
     if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
@@ -934,12 +892,27 @@ static int pmw3610_init(const struct device *dev) {
     }
 
     if (config->irq_gpio.port) {
+        LOG_INF("Configuring IRQ GPIO");
+        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
+            return err;
+        }
+
+        LOG_INF("Configuring IRQ GPIO interrupt");
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
+            return err;
+        }
+
         LOG_INF("Initializing IRQ GPIO callback");
         gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_gpio_callback, BIT(config->irq_gpio.pin));
-        
-        // Check enable GPIO state and configure IRQ GPIO accordingly
-        bool enable_state = config->enable_gpio.port ? gpio_pin_get_dt(&config->enable_gpio) : true;
-        update_irq_gpio_config(dev, enable_state);
+        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
+        if (err) {
+            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
+            return err;
+        }
     }
 
     // Check the readiness of the SPI CS GPIO pin and initialize it to inactive state
@@ -955,6 +928,10 @@ static int pmw3610_init(const struct device *dev) {
     }
 
     // Configure delayable and non-blocking initialization work
+    // 1. Power reset
+    // 2. Upload initial configuration
+    // 3. Other configurations like CPI, downshift time, sample time, etc.
+    // The sensor is ready to work after the above steps are completed (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
     LOG_INF("Scheduling async init work");
