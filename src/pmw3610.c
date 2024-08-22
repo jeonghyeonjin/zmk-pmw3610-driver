@@ -16,7 +16,6 @@
 #include <zmk/keymap.h>
 #include "pmw3610.h"
 #include <math.h>
-#include <zephyr/bluetooth/bluetooth.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
@@ -771,10 +770,6 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
-        if (data->is_bluetooth) {
-            // 블루투스 연결 시 추가 지연
-            k_sleep(K_MSEC(1));
-        }
         set_interrupt(dev, false);
         // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
@@ -787,10 +782,6 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct pixart_config *config = dev->config;
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-        if (data->is_bluetooth) {
-            // 블루투스 연결 시 추가 처리
-            k_sleep(K_MSEC(1));
-        }
         pmw3610_report_data(dev);
     } 
     set_interrupt(dev, true);
@@ -831,18 +822,24 @@ static int pmw3610_init_irq(const struct device *dev) {
     return err;
 }
 
-static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
-                                         uint32_t pins) {
+static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb, uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
-    k_work_submit(&data->enable_gpio_work);
+    const struct device *dev = data->dev;
+    
+    if (pins & BIT(config->enable_gpio.pin)) {
+        k_work_submit(&data->enable_gpio_work);
+    }
 }
 
-static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
-                                      uint32_t pins) {
+static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_callback *cb, uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
-    set_interrupt(dev, false);
-    k_work_submit(&data->trigger_work);
+    const struct pixart_config *config = dev->config;
+    
+    if (pins & BIT(config->irq_gpio.pin)) {
+        set_interrupt(dev, false);
+        k_work_submit(&data->trigger_work);
+    }
 }
 
 static int pmw3610_init(const struct device *dev) {
@@ -852,17 +849,14 @@ static int pmw3610_init(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     int err;
 
-    // 디바이스 포인터 초기화
+    // Initialize device pointer
     data->dev = dev;
 
-    // smart algorithm 플래그 초기화
+    // Initialize smart algorithm flag
     data->sw_smart_flag = false;
 
-    // automouse 활성 상태 초기화
+    // Initialize automouse active state
     data->automouse_active = false;
-
-    // 블루투스 연결 상태 확인
-    data->is_bluetooth = bt_is_ready();
 
     LOG_INF("Initializing trigger_work");
     k_work_init(&data->trigger_work, pmw3610_work_callback);
@@ -872,7 +866,7 @@ static int pmw3610_init(const struct device *dev) {
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_UP);
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
         if (err) {
             LOG_ERR("Cannot configure enable GPIO, error: %d", err);
             return err;
@@ -885,6 +879,7 @@ static int pmw3610_init(const struct device *dev) {
             return err;
         }
 
+        LOG_INF("Initializing enable GPIO callback");
         gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
         err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
         if (err) {
@@ -908,6 +903,7 @@ static int pmw3610_init(const struct device *dev) {
             return err;
         }
 
+        LOG_INF("Initializing IRQ GPIO callback");
         gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_gpio_callback, BIT(config->irq_gpio.pin));
         err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
         if (err) {
@@ -916,7 +912,7 @@ static int pmw3610_init(const struct device *dev) {
         }
     }
 
-    // CS GPIO 핀 준비 상태 확인 및 비활성 상태로 초기화
+    // Check the readiness of the SPI CS GPIO pin and initialize it to inactive state
     if (!device_is_ready(config->cs_gpio.port)) {
         LOG_ERR("SPI CS device not ready");
         return -ENODEV;
@@ -928,13 +924,17 @@ static int pmw3610_init(const struct device *dev) {
         return err;
     }
 
-    // 지연 가능하고 비차단 초기화 작업 설정
+    // Configure delayable and non-blocking initialization work
+    // 1. Power reset
+    // 2. Upload initial configuration
+    // 3. Other configurations like CPI, downshift time, sample time, etc.
+    // The sensor is ready to work after the above steps are completed (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
     LOG_INF("Scheduling async init work");
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
-    // 초기 automouse 레이어 상태 설정
+    // Set initial automouse layer state
     LOG_INF("Setting initial automouse layer state");
     update_automouse_layer(dev);
 

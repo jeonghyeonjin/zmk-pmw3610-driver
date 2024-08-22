@@ -21,7 +21,11 @@ enum pixart_input_mode { MOVE = 0, SCROLL, SNIPE };
 struct pixart_data {
     const struct device *dev;
 
+    // Enable GPIO callback
     struct gpio_callback enable_gpio_cb;
+
+    // IRQ GPIO callback
+    struct gpio_callback irq_gpio_cb;
 
     enum pixart_input_mode curr_mode;
     uint32_t curr_cpi;
@@ -54,9 +58,6 @@ struct pixart_data {
 
     // Add this new member
     bool automouse_active;
-
-    // Add this new member for Bluetooth status
-    bool is_bluetooth;
 };
 
 // device config data structure
