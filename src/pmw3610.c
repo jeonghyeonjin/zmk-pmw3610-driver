@@ -765,12 +765,13 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct pixart_config *config = dev->config;
 
     if (pins & BIT(config->enable_gpio.pin)) {
-        bool enable_state = gpio_pin_get_dt(&config->enable_gpio);
-        set_interrupt(dev, enable_state);
+        // enable GPIO 변화 처리를 위한 work 제출
+        k_work_submit(&data->enable_gpio_work);
     }
 
-    if ((pins & BIT(config->irq_gpio.pin)) && gpio_pin_get_dt(&config->enable_gpio)) {
+    if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
+        // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
     }
 }
@@ -780,7 +781,7 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
-    if (gpio_pin_get_dt(&config->enable_gpio)) {
+    if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
         set_interrupt(dev, true);
     }
@@ -835,10 +836,6 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
-
-    if (pins & BIT(config->enable_gpio.pin)) {
-        k_work_submit(&data->enable_gpio_work);
-    }
     
     if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
@@ -901,7 +898,7 @@ static int pmw3610_init(const struct device *dev) {
         }
 
         LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_FALLING);
         if (err) {
             LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
             return err;
@@ -941,13 +938,6 @@ static int pmw3610_init(const struct device *dev) {
     // Set initial automouse layer state
     LOG_INF("Setting initial automouse layer state");
     update_automouse_layer(dev);
-
-    // Set initial interrupt state based on enable GPIO
-    if (config->enable_gpio.port) {
-        bool initial_state = gpio_pin_get_dt(&config->enable_gpio);
-        LOG_INF("Initial enable GPIO state: %s", initial_state ? "active" : "inactive");
-        set_interrupt(dev, initial_state);
-    }
 
     LOG_INF("Initialization complete");
     return err;
