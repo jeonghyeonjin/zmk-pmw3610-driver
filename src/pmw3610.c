@@ -849,7 +849,7 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     const struct pixart_config *config = dev->config;
     
     if (pins & BIT(config->irq_gpio.pin)) {
-        // set_interrupt(dev, false);
+        set_interrupt(dev, false);
         k_work_submit(&data->trigger_work);
     }
 }
@@ -922,8 +922,15 @@ static int pmw3610_init(const struct device *dev) {
             LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
             return err;
         }
-    }
 
+        // Initially enable or disable interrupt based on enable_gpio state
+        if (config->enable_gpio.port) {
+            bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
+            set_interrupt(dev, pin_active);
+        } else {
+            set_interrupt(dev, true);  // Always enable if there's no enable_gpio
+        }
+    }
     // Check the readiness of the SPI CS GPIO pin and initialize it to inactive state
     if (!device_is_ready(config->cs_gpio.port)) {
         LOG_ERR("SPI CS device not ready");
