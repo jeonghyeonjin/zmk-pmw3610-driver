@@ -867,7 +867,7 @@ static int pmw3610_init(const struct device *dev) {
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
         if (err) {
             LOG_ERR("Cannot configure enable GPIO, error: %d", err);
             return err;
@@ -891,14 +891,14 @@ static int pmw3610_init(const struct device *dev) {
 
     if (config->irq_gpio.port) {
         LOG_INF("Configuring IRQ GPIO");
-        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT);
+        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
         if (err) {
             LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
             return err;
         }
 
         LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_LEVEL_LOW);
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
         if (err) {
             LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
             return err;
@@ -919,7 +919,7 @@ static int pmw3610_init(const struct device *dev) {
         return -ENODEV;
     }
 
-    err = gpio_pin_configure_dt(&config->cs_gpio, GPIO_OUTPUT_INACTIVE);
+    err = gpio_pin_configure_dt(&config->cs_gpio, GPIO_OUTPUT_ACTIVE);
     if (err) {
         LOG_ERR("Cannot configure SPI CS GPIO, error: %d", err);
         return err;
