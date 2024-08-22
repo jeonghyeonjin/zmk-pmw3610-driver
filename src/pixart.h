@@ -54,6 +54,9 @@ struct pixart_data {
 
     // Add this new member
     bool automouse_active;
+
+    // Add this new member for Bluetooth status
+    bool is_bluetooth;
 };
 
 // device config data structure
