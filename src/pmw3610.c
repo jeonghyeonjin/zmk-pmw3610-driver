@@ -874,7 +874,7 @@ static int pmw3610_init(const struct device *dev) {
         }
 
         LOG_INF("Configuring enable GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
+        err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_FALLING);
         if (err) {
             LOG_ERR("Cannot configure enable GPIO interrupt, error: %d", err);
             return err;
