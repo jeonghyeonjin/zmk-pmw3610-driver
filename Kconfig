@@ -141,6 +141,18 @@ config PMW3610_ACCELERATION_THRESHOLD
     help
       The threshold at which mouse acceleration begins to take effect.
 
+config PMW3610_THREAD_PRIORITY
+    int "Priority of the PMW3610 work thread"
+    default 5
+    help
+      Priority of the PMW3610 work thread.
+  
+config PMW3610_STACK_SIZE
+    int "Stack size for the PMW3610 work thread"
+    default 1024
+    help
+      Stack size for the PMW3610 work thread.
+
 choice
     prompt "Select PMW3610 sensor orientation"
     default PMW3610_ORIENTATION_0

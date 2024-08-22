@@ -56,6 +56,11 @@ struct pixart_data {
 
     // Add this new member
     bool automouse_active;
+
+    struct k_sem irq_sem;
+    atomic_t irq_triggered;
+    struct k_thread work_thread;
+    K_THREAD_STACK_MEMBER(work_stack, CONFIG_PMW3610_STACK_SIZE);
 };
 
 // device config data structure
