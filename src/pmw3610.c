@@ -770,6 +770,10 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
+        if (data->is_bluetooth) {
+            // 블루투스 연결 시 추가 지연
+            k_sleep(K_MSEC(1));
+        }
         set_interrupt(dev, false);
         // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
@@ -782,6 +786,10 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct pixart_config *config = dev->config;
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
+        if (data->is_bluetooth) {
+            // 블루투스 연결 시 추가 처리
+            k_sleep(K_MSEC(1));
+        }
         pmw3610_report_data(dev);
     } 
     set_interrupt(dev, true);
@@ -852,6 +860,9 @@ static int pmw3610_init(const struct device *dev) {
     // automouse 활성 상태 초기화
     data->automouse_active = false;
 
+    // 블루투스 연결 상태 확인
+    data->is_bluetooth = bt_is_ready();
+
     LOG_INF("Initializing trigger_work");
     k_work_init(&data->trigger_work, pmw3610_work_callback);
 
@@ -860,7 +871,7 @@ static int pmw3610_init(const struct device *dev) {
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_UP);
         if (err) {
             LOG_ERR("Cannot configure enable GPIO, error: %d", err);
             return err;
@@ -873,7 +884,6 @@ static int pmw3610_init(const struct device *dev) {
             return err;
         }
 
-        // Enable GPIO에 대한 별도의 콜백 초기화
         gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
         err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
         if (err) {
@@ -897,7 +907,6 @@ static int pmw3610_init(const struct device *dev) {
             return err;
         }
 
-        // IRQ GPIO에 대한 별도의 콜백 초기화
         gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_gpio_callback, BIT(config->irq_gpio.pin));
         err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
         if (err) {
