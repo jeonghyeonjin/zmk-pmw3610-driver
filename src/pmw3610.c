@@ -759,8 +759,7 @@ static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
 }
 
 static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
-                                  uint32_t pins)
-{
+                                  uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
@@ -771,26 +770,9 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
-        // 인터럽트 비활성화 대신 플래그 설정
-        atomic_set(&data->irq_triggered, 1);
-        k_sem_give(&data->irq_sem);
-    }
-}
-
-static void pmw3610_work_thread(void *p1, void *p2, void *p3)
-{
-    const struct device *dev = p1;
-    struct pixart_data *data = dev->data;
-    const struct pixart_config *config = dev->config;
-
-    while (1) {
-        k_sem_take(&data->irq_sem, K_FOREVER);
-
-        if (atomic_cas(&data->irq_triggered, 1, 0)) {
-            if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-                pmw3610_report_data(dev);
-            }
-        }
+        set_interrupt(dev, false);
+        // 모션 인터럽트 처리를 위한 work 제출
+        k_work_submit(&data->trigger_work);
     }
 }
 
@@ -876,18 +858,6 @@ static int pmw3610_init(const struct device *dev) {
 
     // Initialize automouse active state
     data->automouse_active = false;
-
-    k_sem_init(&data->irq_sem, 0, 1);
-    atomic_set(&data->irq_triggered, 0);
-
-    k_thread_create(&data->work_thread, data->work_stack,
-                    K_THREAD_STACK_SIZEOF(data->work_stack),
-                    pmw3610_work_thread, (void *)dev, NULL, NULL,
-                    K_PRIO_COOP(CONFIG_PMW3610_THREAD_PRIORITY),
-                    0, K_NO_WAIT);
-
-    // 디바이스를 항상 활성 상태로 유지
-    pm_device_state_set(dev, PM_DEVICE_STATE_ACTIVE);
 
     LOG_INF("Initializing trigger_work");
     k_work_init(&data->trigger_work, pmw3610_work_callback);
