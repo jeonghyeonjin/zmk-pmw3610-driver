@@ -640,13 +640,11 @@ static int pmw3610_report_data(const struct device *dev) {
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
 
-    // Apply non-linear acceleration curve
-    float magnitude = sqrtf(x * x + y * y);
-    float acceleration = 1.0f + (magnitude > CONFIG_PMW3610_ACCELERATION_THRESHOLD ? 
-                            (magnitude - CONFIG_PMW3610_ACCELERATION_THRESHOLD) / CONFIG_PMW3610_ACCELERATION_THRESHOLD : 
-                            0);
-    x *= acceleration;
-    y *= acceleration;
+    // 리니어 움직임을 위해 가속도 계산 부분 제거
+    // 대신 일정한 속도 팩터를 적용할 수 있습니다
+    float speed_factor = 1.0f; // 필요에 따라 조정
+    x *= speed_factor;
+    y *= speed_factor;
 
     static float accum_x = 0, accum_y = 0;
     accum_x += x;
@@ -656,7 +654,7 @@ static int pmw3610_report_data(const struct device *dev) {
     accum_x -= final_x;
     accum_y -= final_y;
 
-    // Apply orientation and inversion
+    // 방향 및 반전 적용 (기존 코드와 동일)
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
         int16_t temp = final_x;
         final_x = final_y;
