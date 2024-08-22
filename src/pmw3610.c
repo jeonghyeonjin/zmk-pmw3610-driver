@@ -849,7 +849,7 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     const struct pixart_config *config = dev->config;
     
     if (pins & BIT(config->irq_gpio.pin)) {
-        set_interrupt(dev, false);
+        // set_interrupt(dev, false);
         k_work_submit(&data->trigger_work);
     }
 }
