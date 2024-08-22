@@ -642,7 +642,7 @@ static int pmw3610_report_data(const struct device *dev) {
 
     // 리니어 움직임을 위해 가속도 계산 부분 제거
     // 대신 일정한 속도 팩터를 적용할 수 있습니다
-    float speed_factor = 1.0f; // 필요에 따라 조정
+    float speed_factor = 1.3f; // 필요에 따라 조정
     x *= speed_factor;
     y *= speed_factor;
 
