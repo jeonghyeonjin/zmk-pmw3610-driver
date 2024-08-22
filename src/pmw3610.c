@@ -20,6 +20,18 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 
+#ifndef MOVING_AVERAGE_SAMPLES
+#define MOVING_AVERAGE_SAMPLES 4
+#endif
+
+#ifndef DEADZONE_THRESHOLD
+#define DEADZONE_THRESHOLD 0.1f
+#endif
+
+#ifndef NOISE_THRESHOLD
+#define NOISE_THRESHOLD 0.05f
+#endif
+
 //////// Sensor initialization steps definition //////////
 // init is done in non-blocking manner (i.e., async), a //
 // delayable work is defined for this purpose           //
