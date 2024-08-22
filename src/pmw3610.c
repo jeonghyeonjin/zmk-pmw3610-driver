@@ -765,13 +765,8 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     const struct pixart_config *config = dev->config;
 
     if (pins & BIT(config->enable_gpio.pin)) {
-        if (gpio_pin_get_dt(&config->enable_gpio)) {
-            // Enable GPIO is active, enable sensor interrupt
-            set_interrupt(dev, true);
-        } else {
-            // Enable GPIO is inactive, disable sensor interrupt
-            set_interrupt(dev, false);
-        }
+        bool enable_state = gpio_pin_get_dt(&config->enable_gpio);
+        set_interrupt(dev, enable_state);
     }
 
     if ((pins & BIT(config->irq_gpio.pin)) && gpio_pin_get_dt(&config->enable_gpio)) {
@@ -873,15 +868,6 @@ static int pmw3610_init(const struct device *dev) {
     LOG_INF("Initializing enable_gpio_work");
     k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
 
-    // Set initial interrupt state based on enable GPIO
-    if (config->enable_gpio.port) {
-        if (gpio_pin_get_dt(&config->enable_gpio)) {
-            set_interrupt(dev, true);
-        } else {
-            set_interrupt(dev, false);
-        }
-    }
-
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
         err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
@@ -955,6 +941,13 @@ static int pmw3610_init(const struct device *dev) {
     // Set initial automouse layer state
     LOG_INF("Setting initial automouse layer state");
     update_automouse_layer(dev);
+
+    // Set initial interrupt state based on enable GPIO
+    if (config->enable_gpio.port) {
+        bool initial_state = gpio_pin_get_dt(&config->enable_gpio);
+        LOG_INF("Initial enable GPIO state: %s", initial_state ? "active" : "inactive");
+        set_interrupt(dev, initial_state);
+    }
 
     LOG_INF("Initialization complete");
     return err;
