@@ -771,8 +771,6 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
                 k_work_submit(&data->trigger_work);
             }
         }
-    } else {
-        set_interrupt(dev, true);
     }
 }
 
