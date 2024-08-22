@@ -825,6 +825,7 @@ static int pmw3610_init_irq(const struct device *dev) {
 static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb, uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
     const struct device *dev = data->dev;
+    const struct pixart_config *config = dev->config;
     
     if (pins & BIT(config->enable_gpio.pin)) {
         k_work_submit(&data->enable_gpio_work);
