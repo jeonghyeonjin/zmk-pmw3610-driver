@@ -19,8 +19,6 @@ extern "C" {
 #define T_SWX 30         /* SWW: 30 us, SWR: 20 us */
 #define T_BEXIT 1        /* 250 ns (rounded to 1us)*/
 
-#define DEBOUNCE_DELAY_MS 5
-
 /* Sensor registers (addresses) */
 #define PMW3610_REG_PRODUCT_ID 0x00
 #define PMW3610_REG_REVISION_ID 0x01

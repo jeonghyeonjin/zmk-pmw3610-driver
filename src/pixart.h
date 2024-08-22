@@ -22,8 +22,6 @@ struct pixart_data {
     const struct device *dev;
 
     struct gpio_callback enable_gpio_cb;
-    struct k_mutex spi_mutex;
-    struct k_work_delayable enable_int_work;
 
     enum pixart_input_mode curr_mode;
     uint32_t curr_cpi;
