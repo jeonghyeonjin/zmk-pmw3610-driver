@@ -593,6 +593,21 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
     return MOVE;
 }
 
+static float moving_average_x[MOVING_AVERAGE_SAMPLES] = {0};
+static float moving_average_y[MOVING_AVERAGE_SAMPLES] = {0};
+static int moving_average_index = 0;
+
+static float apply_moving_average(float new_value, float* buffer) {
+    buffer[moving_average_index] = new_value;
+    moving_average_index = (moving_average_index + 1) % MOVING_AVERAGE_SAMPLES;
+    
+    float sum = 0;
+    for (int i = 0; i < MOVING_AVERAGE_SAMPLES; i++) {
+        sum += buffer[i];
+    }
+    return sum / MOVING_AVERAGE_SAMPLES;
+}
+
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     uint8_t buf[PMW3610_BURST_SIZE];
@@ -640,21 +655,43 @@ static int pmw3610_report_data(const struct device *dev) {
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
 
-    // 리니어 움직임을 위해 가속도 계산 부분 제거
-    // 대신 일정한 속도 팩터를 적용할 수 있습니다
-    float speed_factor = 1.2f; // 필요에 따라 조정
+    // 노이즈 필터링
+    if (fabsf(x) < NOISE_THRESHOLD) x = 0;
+    if (fabsf(y) < NOISE_THRESHOLD) y = 0;
+
+    // 데드존 적용
+    if (sqrtf(x*x + y*y) < DEADZONE_THRESHOLD) {
+        x = 0;
+        y = 0;
+    }
+
+    // 이동 평균 적용
+    x = apply_moving_average(x, moving_average_x);
+    y = apply_moving_average(y, moving_average_y);
+
+    float speed_factor = 1.25f; // 필요에 따라 조정
     x *= speed_factor;
     y *= speed_factor;
 
+    static float prev_x = 0, prev_y = 0;
     static float accum_x = 0, accum_y = 0;
-    accum_x += x;
-    accum_y += y;
+
+    // 보간
+    float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
+    float interp_x = prev_x + (x - prev_x) * interp_factor;
+    float interp_y = prev_y + (y - prev_y) * interp_factor;
+
+    accum_x += interp_x;
+    accum_y += interp_y;
     int16_t final_x = (int16_t)accum_x;
     int16_t final_y = (int16_t)accum_y;
     accum_x -= final_x;
     accum_y -= final_y;
 
-    // 방향 및 반전 적용 (기존 코드와 동일)
+    prev_x = x;
+    prev_y = y;
+
+    // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
         int16_t temp = final_x;
         final_x = final_y;
