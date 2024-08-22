@@ -96,54 +96,73 @@ static int spi_cs_ctrl(const struct device *dev, bool enable) {
 }
 
 // checked and keep
-static int reg_read(const struct device *dev, uint8_t reg, uint8_t *buf) {
+static int reg_read(const struct device *dev, uint8_t reg, uint8_t *buf)
+{
     int err;
-    /* struct pixart_data *data = dev->data; */
     const struct pixart_config *config = dev->config;
+    struct pixart_data *data = dev->data;
 
     __ASSERT_NO_MSG((reg & SPI_WRITE_BIT) == 0);
 
+    // 뮤텍스 잠금
+    k_mutex_lock(&data->spi_mutex, K_FOREVER);
+
+    // CS 활성화
     err = spi_cs_ctrl(dev, true);
     if (err) {
-        return err;
+        LOG_ERR("Failed to activate CS");
+        goto exit;
     }
 
-    /* Write register address. */
-    const struct spi_buf tx_buf = {.buf = &reg, .len = 1};
-    const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+    // 레지스터 주소 쓰기
+    uint8_t tx_buf = reg;
+    const struct spi_buf tx = {
+        .buf = &tx_buf,
+        .len = 1
+    };
+    const struct spi_buf_set tx_set = {
+        .buffers = &tx,
+        .count = 1
+    };
 
-    err = spi_write_dt(&config->bus, &tx);
+    err = spi_write_dt(&config->bus, &tx_set);
     if (err) {
-        LOG_ERR("Reg read failed on SPI write");
-        return err;
+        LOG_ERR("Failed to write register address");
+        goto exit;
     }
 
     k_busy_wait(T_SRAD);
 
-    /* Read register value. */
-    struct spi_buf rx_buf = {
+    // 레지스터 값 읽기
+    struct spi_buf rx = {
         .buf = buf,
         .len = 1,
     };
-    const struct spi_buf_set rx = {
-        .buffers = &rx_buf,
+    const struct spi_buf_set rx_set = {
+        .buffers = &rx,
         .count = 1,
     };
 
-    err = spi_read_dt(&config->bus, &rx);
+    err = spi_read_dt(&config->bus, &rx_set);
     if (err) {
-        LOG_ERR("Reg read failed on SPI read");
-        return err;
-    }
-
-    err = spi_cs_ctrl(dev, false);
-    if (err) {
-        return err;
+        LOG_ERR("Failed to read register value");
+        goto exit;
     }
 
     k_busy_wait(T_SRX);
 
-    return 0;
+exit:
+    // CS 비활성화 (에러 발생 여부와 관계없이 항상 실행)
+    int cs_err = spi_cs_ctrl(dev, false);
+    if (cs_err) {
+        LOG_ERR("Failed to deactivate CS");
+        err = err ? err : cs_err;  // 이전 에러가 없었을 경우에만 CS 에러를 반환
+    }
+
+    // 뮤텍스 해제
+    k_mutex_unlock(&data->spi_mutex);
+
+    return err;
 }
 
 // primitive write without enable/disable spi clock on the sensor
@@ -758,20 +777,29 @@ static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     update_automouse_layer(dev);
 }
 
+static int64_t last_interrupt_time = 0;
+
 static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
                                   uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
     const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
 
+    int64_t current_time = k_uptime_get();
+    
+    if (current_time - last_interrupt_time < DEBOUNCE_DELAY_MS) {
+        // Ignore this interrupt as it's too soon after the last one
+        return;
+    }
+    
+    last_interrupt_time = current_time;
+
     if (pins & BIT(config->enable_gpio.pin)) {
-        // enable GPIO 변화 처리를 위한 work 제출
         k_work_submit(&data->enable_gpio_work);
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
-        // 모션 인터럽트 처리를 위한 work 제출
         k_work_submit(&data->trigger_work);
     }
 }
@@ -782,9 +810,29 @@ static void pmw3610_work_callback(struct k_work *work) {
     const struct pixart_config *config = dev->config;
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
-        pmw3610_report_data(dev);
+        int retries = 3;
+        int err;
+        
+        while (retries > 0) {
+            err = pmw3610_report_data(dev);
+            if (err == 0) break;
+            
+            k_sleep(K_MSEC(1)); // Short delay before retry
+            retries--;
+        }
+        
+        if (err != 0) {
+            LOG_ERR("Failed to report data after retries");
+        }
     } 
-    set_interrupt(dev, true);
+
+    // Re-enable interrupt after a short delay
+    k_work_schedule(&data->enable_int_work, K_MSEC(1));
+}
+
+static void enable_interrupt_work(struct k_work *work) {
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_int_work);
+    set_interrupt(data->dev, true);
 }
 
 static int pmw3610_init_irq(const struct device *dev) {
@@ -838,11 +886,9 @@ static int pmw3610_init(const struct device *dev) {
     // automouse 활성 상태 초기화
     data->automouse_active = false;
 
-    LOG_INF("Initializing trigger_work");
+    k_mutex_init(&data->spi_mutex);
     k_work_init(&data->trigger_work, pmw3610_work_callback);
-
-    LOG_INF("Initializing enable_gpio_work");
-    k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
+    k_work_init_delayable(&data->enable_int_work, enable_interrupt_work);
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
