@@ -56,6 +56,9 @@ struct pixart_data {
 
     // Add this new member
     bool automouse_active;
+
+    struct k_work_delayable polling_work;
+    int last_enable_state;
 };
 
 // device config data structure

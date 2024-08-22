@@ -843,6 +843,24 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     }
 }
 
+#define POLLING_INTERVAL_MS 50
+
+static void polling_work_handler(struct k_work *work)
+{
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, polling_work);
+    const struct pixart_config *config = data->dev->config;
+    
+    int current_state = gpio_pin_get_dt(&config->enable_gpio);
+    
+    if (current_state != data->last_enable_state) {
+        data->last_enable_state = current_state;
+        update_automouse_layer(data->dev);
+    }
+    
+    // 다음 폴링 스케줄
+    k_work_schedule(&data->polling_work, K_MSEC(POLLING_INTERVAL_MS));
+}
+
 static int pmw3610_init(const struct device *dev) {
     LOG_INF("Start initializing...");
 
@@ -867,11 +885,18 @@ static int pmw3610_init(const struct device *dev) {
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
+        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT);
         if (err) {
-            LOG_ERR("Cannot configure enable GPIO, error: %d", err);
+            LOG_ERR("Failed to configure enable GPIO");
             return err;
         }
+
+        // 초기 상태 읽기
+        data->last_enable_state = gpio_pin_get_dt(&config->enable_gpio);
+
+        // 폴링 작업 초기화 및 시작
+        k_work_init_delayable(&data->polling_work, polling_work_handler);
+        k_work_schedule(&data->polling_work, K_MSEC(POLLING_INTERVAL_MS));
 
         LOG_INF("Configuring enable GPIO interrupt");
         err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
@@ -898,7 +923,7 @@ static int pmw3610_init(const struct device *dev) {
         }
 
         LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_BOTH);
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_FALLING);
         if (err) {
             LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
             return err;
