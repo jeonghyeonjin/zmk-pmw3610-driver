@@ -822,13 +822,33 @@ static int pmw3610_init_irq(const struct device *dev) {
     return err;
 }
 
-static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb, uint32_t pins) {
+static void pmw3610_enable_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
-    const struct device *dev = data->dev;
     const struct pixart_config *config = dev->config;
-    
+
     if (pins & BIT(config->enable_gpio.pin)) {
-        k_work_submit(&data->enable_gpio_work);
+        int val = gpio_pin_get_dt(&config->enable_gpio);
+        if (val < 0) {
+            LOG_ERR("Failed to read enable GPIO value");
+            return;
+        }
+
+        if (val == 0) {
+            // enable GPIO is inactive
+            if (data->automouse_active) {
+                zmk_keymap_layer_deactivate(AUTOMOUSE_LAYER);
+                data->automouse_active = false;
+                LOG_INF("Automouse layer deactivated");
+            }
+        } else {
+            // enable GPIO is active
+            if (!data->automouse_active) {
+                zmk_keymap_layer_activate(AUTOMOUSE_LAYER);
+                data->automouse_active = true;
+                LOG_INF("Automouse layer activated");
+            }
+        }
     }
 }
 
