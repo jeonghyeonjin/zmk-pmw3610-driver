@@ -623,6 +623,11 @@ static float apply_moving_average(float new_value, float* buffer) {
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     uint8_t buf[PMW3610_BURST_SIZE];
+    const struct pixart_config *config = dev->config;
+    
+    if (!gpio_pin_get_dt(&config->enable_gpio)) {
+        return 0;  // enable GPIO가 비활성화 상태면 처리하지 않음
+    }
 
     if (unlikely(!data->ready)) {
         LOG_WRN("Device is not initialized yet");
