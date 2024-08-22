@@ -825,50 +825,15 @@ static int pmw3610_init_irq(const struct device *dev) {
 static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
                                          uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
-    const struct pixart_config *config = data->dev->config;
-
-    if ((pins & BIT(config->enable_gpio.pin)) == 0) {
-        return;
-    }
-
-    int enable_state = gpio_pin_get_dt(&config->enable_gpio);
-    if (enable_state < 0) {
-        LOG_ERR("Failed to read Enable GPIO state: %d", enable_state);
-        return;
-    }
-
-    if (enable_state) {
-        LOG_DBG("Enable GPIO activated");
-    } else {
-        LOG_DBG("Enable GPIO deactivated");
-    }
-
     k_work_submit(&data->enable_gpio_work);
 }
 
 static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
                                       uint32_t pins) {
     struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
-    const struct pixart_config *config = data->dev->config;
     const struct device *dev = data->dev;
-
-    if ((pins & BIT(config->irq_gpio.pin)) == 0) {
-        return;
-    }
-
-    int irq_state = gpio_pin_get_dt(&config->irq_gpio);
-    if (irq_state < 0) {
-        LOG_ERR("Failed to read IRQ GPIO state: %d", irq_state);
-        return;
-    }
-
-    if (irq_state == 0) {
-        LOG_DBG("Motion detected");
-        set_interrupt(dev, false);
-        k_work_submit(&data->trigger_work);
-    } else {
-        LOG_WRN("Unexpected IRQ GPIO state: HIGH");
-    }
+    set_interrupt(dev, false);
+    k_work_submit(&data->trigger_work);
 }
 
 static int pmw3610_init(const struct device *dev) {
