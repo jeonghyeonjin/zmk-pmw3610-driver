@@ -770,9 +770,10 @@ static void pmw3610_gpio_callback(const struct device *gpiob, struct gpio_callba
     }
 
     if (pins & BIT(config->irq_gpio.pin)) {
-        set_interrupt(dev, false);
-        // 모션 인터럽트 처리를 위한 work 제출
-        k_work_submit(&data->trigger_work);
+        if (!config->enable_gpio.port || gpio_pin_get_dt(&config->enable_gpio)) {
+            set_interrupt(dev, false);
+            k_work_submit(&data->trigger_work);
+        }
     }
 }
 
