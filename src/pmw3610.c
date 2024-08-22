@@ -756,6 +756,41 @@ static int pmw3610_report_data(const struct device *dev) {
     return 0;
 }
 
+static void update_irq_gpio_config(const struct device *dev, bool enable) {
+    const struct pixart_config *config = dev->config;
+    struct pixart_data *data = dev->data;
+    int err;
+
+    if (enable) {
+        LOG_INF("Configuring IRQ GPIO");
+        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
+            return;
+        }
+
+        LOG_INF("Configuring IRQ GPIO interrupt");
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
+        if (err) {
+            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
+            return;
+        }
+
+        LOG_INF("Adding IRQ GPIO callback");
+        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
+        if (err) {
+            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
+            return;
+        }
+    } else {
+        LOG_INF("Disabling IRQ GPIO interrupt");
+        gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
+        
+        LOG_INF("Removing IRQ GPIO callback");
+        gpio_remove_callback(config->irq_gpio.port, &data->irq_gpio_cb);
+    }
+}
+
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
     const struct device *dev = data->dev;
@@ -849,41 +884,6 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     if (pins & BIT(config->irq_gpio.pin)) {
         set_interrupt(dev, false);
         k_work_submit(&data->trigger_work);
-    }
-}
-
-static void update_irq_gpio_config(const struct device *dev, bool enable) {
-    const struct pixart_config *config = dev->config;
-    struct pixart_data *data = dev->data;
-    int err;
-
-    if (enable) {
-        LOG_INF("Configuring IRQ GPIO");
-        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
-            return;
-        }
-
-        LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
-            return;
-        }
-
-        LOG_INF("Adding IRQ GPIO callback");
-        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
-        if (err) {
-            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
-            return;
-        }
-    } else {
-        LOG_INF("Disabling IRQ GPIO interrupt");
-        gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_DISABLE);
-        
-        LOG_INF("Removing IRQ GPIO callback");
-        gpio_remove_callback(config->irq_gpio.port, &data->irq_gpio_cb);
     }
 }
 
