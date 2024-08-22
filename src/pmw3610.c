@@ -681,7 +681,7 @@ static int pmw3610_report_data(const struct device *dev) {
     x = apply_moving_average(x, moving_average_x);
     y = apply_moving_average(y, moving_average_y);
 
-    float speed_factor = 1.25f; // 필요에 따라 조정
+    float speed_factor = 1.7f; // 필요에 따라 조정
     x *= speed_factor;
     y *= speed_factor;
 
