@@ -858,6 +858,14 @@ static int pmw3610_init(const struct device *dev) {
             LOG_ERR("Cannot configure enable GPIO interrupt, error: %d", err);
             return err;
         }
+
+        // Enable GPIO에 대한 별도의 콜백 초기화
+        gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
+        err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
+        if (err) {
+            LOG_ERR("Cannot add enable GPIO callback, error: %d", err);
+            return err;
+        }
     }
 
     if (config->irq_gpio.port) {
@@ -874,21 +882,9 @@ static int pmw3610_init(const struct device *dev) {
             LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
             return err;
         }
-    }
 
-    LOG_INF("Initializing GPIO callback");
-    gpio_init_callback(&data->irq_gpio_cb, pmw3610_gpio_callback, 
-                       BIT(config->irq_gpio.pin) | BIT(config->enable_gpio.pin));
-    
-    if (config->enable_gpio.port) {
-        err = gpio_add_callback(config->enable_gpio.port, &data->irq_gpio_cb);
-        if (err) {
-            LOG_ERR("Cannot add enable GPIO callback, error: %d", err);
-            return err;
-        }
-    }
-    
-    if (config->irq_gpio.port) {
+        // IRQ GPIO에 대한 별도의 콜백 초기화
+        gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_gpio_callback, BIT(config->irq_gpio.pin));
         err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
         if (err) {
             LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
@@ -909,10 +905,6 @@ static int pmw3610_init(const struct device *dev) {
     }
 
     // 지연 가능하고 비차단 초기화 작업 설정
-    // 1. 전원 리셋
-    // 2. 초기 설정 업로드
-    // 3. CPI, downshift 시간, 샘플 시간 등의 기타 구성
-    // 센서는 위 단계들이 완료된 후 작동 준비 상태가 됨 (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
     LOG_INF("Scheduling async init work");
@@ -924,6 +916,20 @@ static int pmw3610_init(const struct device *dev) {
 
     LOG_INF("Initialization complete");
     return err;
+}
+
+static void pmw3610_enable_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
+                                         uint32_t pins) {
+    struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, enable_gpio_cb);
+    k_work_submit(&data->enable_gpio_work);
+}
+
+static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_callback *cb,
+                                      uint32_t pins) {
+    struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
+    const struct device *dev = data->dev;
+    set_interrupt(dev, false);
+    k_work_submit(&data->trigger_work);
 }
 
 #define PMW3610_DEFINE(n)                                                                          \
