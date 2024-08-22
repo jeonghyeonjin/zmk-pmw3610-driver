@@ -826,12 +826,12 @@ static void pmw3610_work_callback(struct k_work *work) {
         }
     } 
 
-    // Re-enable interrupt after a short delay
+    // 인터럽트 재활성화를 위한 작업 스케줄링
     k_work_schedule(&data->enable_int_work, K_MSEC(1));
 }
 
 static void enable_interrupt_work(struct k_work *work) {
-    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_int_work);
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_int_work.work);
     set_interrupt(data->dev, true);
 }
 
