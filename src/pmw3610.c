@@ -783,6 +783,7 @@ static void pmw3610_work_callback(struct k_work *work) {
 
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
+    } else {
         set_interrupt(dev, true);
     }
 }
