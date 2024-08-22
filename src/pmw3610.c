@@ -849,6 +849,7 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     const struct pixart_config *config = dev->config;
     
     if (pins & BIT(config->irq_gpio.pin)) {
+        set_interrupt(dev, false);
         k_work_submit(&data->trigger_work);
     }
 }
@@ -908,7 +909,7 @@ static int pmw3610_init(const struct device *dev) {
         }
 
         LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
+        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_FALLING);
         if (err) {
             LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
             return err;
@@ -920,14 +921,6 @@ static int pmw3610_init(const struct device *dev) {
         if (err) {
             LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
             return err;
-        }
-
-        // Initially enable or disable interrupt based on enable_gpio state
-        if (config->enable_gpio.port) {
-            bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
-            set_interrupt(dev, pin_active);
-        } else {
-            set_interrupt(dev, true);  // Always enable if there's no enable_gpio
         }
     }
 
