@@ -25,11 +25,11 @@ LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 #endif
 
 #ifndef DEADZONE_THRESHOLD
-#define DEADZONE_THRESHOLD 0.05f
+#define DEADZONE_THRESHOLD 0.1f
 #endif
 
 #ifndef NOISE_THRESHOLD
-#define NOISE_THRESHOLD 0.02f
+#define NOISE_THRESHOLD 0.05f
 #endif
 
 //////// Sensor initialization steps definition //////////
@@ -644,7 +644,7 @@ static int pmw3610_report_data(const struct device *dev) {
             data->scroll_delta_x = 0;
             data->scroll_delta_y = 0;
         }
-        dividor = 1;
+        dividor = 1; // this should be handled with the ticks rather than dividors
         break;
     case SNIPE:
         set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
@@ -681,12 +681,27 @@ static int pmw3610_report_data(const struct device *dev) {
     x = apply_moving_average(x, moving_average_x);
     y = apply_moving_average(y, moving_average_y);
 
-    float speed_factor = 2.5f;
+    float speed_factor = 2.3f; // 필요에 따라 조정
     x *= speed_factor;
     y *= speed_factor;
 
-    int16_t final_x = (int16_t)x;
-    int16_t final_y = (int16_t)y;
+    static float prev_x = 0, prev_y = 0;
+    static float accum_x = 0, accum_y = 0;
+
+    // 보간
+    float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
+    float interp_x = prev_x + (x - prev_x) * interp_factor;
+    float interp_y = prev_y + (y - prev_y) * interp_factor;
+
+    accum_x += interp_x;
+    accum_y += interp_y;
+    int16_t final_x = (int16_t)accum_x;
+    int16_t final_y = (int16_t)accum_y;
+    accum_x -= final_x;
+    accum_y -= final_y;
+
+    prev_x = x;
+    prev_y = y;
 
     // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
@@ -712,21 +727,21 @@ static int pmw3610_report_data(const struct device *dev) {
 
     if (final_x != 0 || final_y != 0) {
         if (input_mode != SCROLL) {
-            input_report_rel(dev, INPUT_REL_X, final_x, false, K_NO_WAIT);
-            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_X, final_x, false, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_FOREVER);
         } else {
             data->scroll_delta_x += final_x;
             data->scroll_delta_y += final_y;
             if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
                 input_report_rel(dev, INPUT_REL_WHEEL,
                                  data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
-                                 true, K_NO_WAIT);
+                                 true, K_FOREVER);
                 data->scroll_delta_x = 0;
                 data->scroll_delta_y = 0;
             } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
                 input_report_rel(dev, INPUT_REL_HWHEEL,
                                  data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
-                                 true, K_NO_WAIT);
+                                 true, K_FOREVER);
                 data->scroll_delta_x = 0;
                 data->scroll_delta_y = 0;
             }
