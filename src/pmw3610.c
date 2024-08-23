@@ -21,7 +21,7 @@
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 
 #ifndef MOVING_AVERAGE_SAMPLES
-#define MOVING_AVERAGE_SAMPLES 4
+#define MOVING_AVERAGE_SAMPLES 2
 #endif
 
 #ifndef DEADZONE_THRESHOLD
@@ -854,9 +854,86 @@ static void pmw3610_irq_gpio_callback(const struct device *gpiob, struct gpio_ca
     }
 }
 
-static int pmw3610_init(const struct device *dev) {
-    LOG_INF("Start initializing...");
+static void pmw3610_process_data(const struct device *dev) {
+    struct pixart_data *data = dev->data;
+    uint8_t buf[PMW3610_BURST_SIZE];
+    int err;
 
+    if (unlikely(!data->ready)) {
+        LOG_WRN("Device is not initialized yet");
+        return;
+    }
+
+    err = motion_burst_read(dev, buf, sizeof(buf));
+    if (err) {
+        LOG_ERR("Failed to read motion burst");
+        return;
+    }
+
+    int16_t raw_x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
+    int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
+
+    float x = (float)raw_x / CONFIG_PMW3610_CPI_DIVIDOR;
+    float y = (float)raw_y / CONFIG_PMW3610_CPI_DIVIDOR;
+
+    // Simple noise filtering
+    if (fabsf(x) < NOISE_THRESHOLD) x = 0;
+    if (fabsf(y) < NOISE_THRESHOLD) y = 0;
+
+    // Simplified moving average
+    static float prev_x = 0, prev_y = 0;
+    x = (x + prev_x) / 2;
+    y = (y + prev_y) / 2;
+    prev_x = x;
+    prev_y = y;
+
+    // Apply speed factor
+    float speed_factor = 2.3f;
+    x *= speed_factor;
+    y *= speed_factor;
+
+    // Convert to integers
+    int16_t final_x = (int16_t)x;
+    int16_t final_y = (int16_t)y;
+
+    // Apply orientation and inversion
+    if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
+        int16_t temp = final_x;
+        final_x = final_y;
+        final_y = -temp;
+    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_180)) {
+        final_x = -final_x;
+        final_y = -final_y;
+    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_270)) {
+        int16_t temp = final_x;
+        final_x = -final_y;
+        final_y = temp;
+    }
+
+    if (IS_ENABLED(CONFIG_PMW3610_INVERT_X)) {
+        final_x = -final_x;
+    }
+
+    if (IS_ENABLED(CONFIG_PMW3610_INVERT_Y)) {
+        final_y = -final_y;
+    }
+
+    if (final_x != 0 || final_y != 0) {
+        input_report_rel(dev, INPUT_REL_X, final_x, false, K_NO_WAIT);
+        input_report_rel(dev, INPUT_REL_Y, final_y, true, K_NO_WAIT);
+    }
+}
+
+static void pmw3610_irq_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+    struct pixart_data *data = CONTAINER_OF(cb, struct pixart_data, irq_gpio_cb);
+    const struct pixart_config *config = dev->config;
+
+    if (pins & BIT(config->irq_gpio.pin)) {
+        pmw3610_process_data(dev);
+    }
+}
+
+static int pmw3610_init(const struct device *dev) {
     struct pixart_data *data = dev->data;
     const struct pixart_config *config = dev->config;
     int err;
@@ -864,74 +941,7 @@ static int pmw3610_init(const struct device *dev) {
     // Initialize device pointer
     data->dev = dev;
 
-    // Initialize smart algorithm flag
-    data->sw_smart_flag = false;
-
-    // Initialize automouse active state
-    data->automouse_active = false;
-
-    LOG_INF("Initializing trigger_work");
-    k_work_init(&data->trigger_work, pmw3610_work_callback);
-
-    LOG_INF("Initializing enable_gpio_work");
-    k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
-
-    if (config->enable_gpio.port) {
-        LOG_INF("Configuring enable GPIO");
-        err = gpio_pin_configure_dt(&config->enable_gpio, GPIO_INPUT | GPIO_PULL_DOWN);
-        if (err) {
-            LOG_ERR("Cannot configure enable GPIO, error: %d", err);
-            return err;
-        }
-
-        LOG_INF("Configuring enable GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->enable_gpio, GPIO_INT_EDGE_BOTH);
-        if (err) {
-            LOG_ERR("Cannot configure enable GPIO interrupt, error: %d", err);
-            return err;
-        }
-
-        LOG_INF("Initializing enable GPIO callback");
-        gpio_init_callback(&data->enable_gpio_cb, pmw3610_enable_gpio_callback, BIT(config->enable_gpio.pin));
-        err = gpio_add_callback(config->enable_gpio.port, &data->enable_gpio_cb);
-        if (err) {
-            LOG_ERR("Cannot add enable GPIO callback, error: %d", err);
-            return err;
-        }
-    }
-
-    if (config->irq_gpio.port) {
-        LOG_INF("Configuring IRQ GPIO");
-        err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT | GPIO_PULL_UP);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO, error: %d", err);
-            return err;
-        }
-
-        LOG_INF("Configuring IRQ GPIO interrupt");
-        err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_FALLING);
-        if (err) {
-            LOG_ERR("Cannot configure IRQ GPIO interrupt, error: %d", err);
-            return err;
-        }
-
-        LOG_INF("Initializing IRQ GPIO callback");
-        gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_gpio_callback, BIT(config->irq_gpio.pin));
-        err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
-        if (err) {
-            LOG_ERR("Cannot add IRQ GPIO callback, error: %d", err);
-            return err;
-        }
-
-        // Initially enable or disable interrupt based on enable_gpio state
-        if (config->enable_gpio.port) {
-            bool pin_active = gpio_pin_get_dt(&config->enable_gpio);
-            set_interrupt(dev, pin_active);
-        } else {
-            set_interrupt(dev, true);  // Always enable if there's no enable_gpio
-        }
-    }
-    // Check the readiness of the SPI CS GPIO pin and initialize it to inactive state
+    // Configure SPI CS
     if (!device_is_ready(config->cs_gpio.port)) {
         LOG_ERR("SPI CS device not ready");
         return -ENODEV;
@@ -939,26 +949,40 @@ static int pmw3610_init(const struct device *dev) {
 
     err = gpio_pin_configure_dt(&config->cs_gpio, GPIO_OUTPUT_INACTIVE);
     if (err) {
-        LOG_ERR("Cannot configure SPI CS GPIO, error: %d", err);
+        LOG_ERR("Cannot configure SPI CS GPIO");
         return err;
     }
 
-    // Configure delayable and non-blocking initialization work
-    // 1. Power reset
-    // 2. Upload initial configuration
-    // 3. Other configurations like CPI, downshift time, sample time, etc.
-    // The sensor is ready to work after the above steps are completed (data->ready = true)
-    k_work_init_delayable(&data->init_work, pmw3610_async_init);
+    // Configure IRQ GPIO
+    if (!device_is_ready(config->irq_gpio.port)) {
+        LOG_ERR("IRQ GPIO device not ready");
+        return -ENODEV;
+    }
 
-    LOG_INF("Scheduling async init work");
+    err = gpio_pin_configure_dt(&config->irq_gpio, GPIO_INPUT);
+    if (err) {
+        LOG_ERR("Cannot configure IRQ GPIO");
+        return err;
+    }
+
+    gpio_init_callback(&data->irq_gpio_cb, pmw3610_irq_callback, BIT(config->irq_gpio.pin));
+    err = gpio_add_callback(config->irq_gpio.port, &data->irq_gpio_cb);
+    if (err) {
+        LOG_ERR("Cannot add IRQ GPIO callback");
+        return err;
+    }
+
+    err = gpio_pin_interrupt_configure_dt(&config->irq_gpio, GPIO_INT_EDGE_TO_ACTIVE);
+    if (err) {
+        LOG_ERR("Cannot configure IRQ GPIO interrupt");
+        return err;
+    }
+
+    // Initialize the sensor
+    k_work_init_delayable(&data->init_work, pmw3610_async_init);
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
-    // Set initial automouse layer state
-    LOG_INF("Setting initial automouse layer state");
-    update_automouse_layer(dev);
-
-    LOG_INF("Initialization complete");
-    return err;
+    return 0;
 }
 
 #define PMW3610_DEFINE(n)                                                                          \
