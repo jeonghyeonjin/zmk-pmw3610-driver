@@ -647,6 +647,11 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
+    // 90도 회전 적용
+    int16_t temp = x;
+    x = -y;  // y를 x로 이동하고 부호 반전
+    y = temp;  // 원래의 x를 y로 이동
+
 #if IS_ENABLED(CONFIG_PMW3610_SWAP_XY)
     int16_t a = x;
     x = y;
