@@ -21,15 +21,15 @@
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 
 #ifndef MOVING_AVERAGE_SAMPLES
-#define MOVING_AVERAGE_SAMPLES 1
+#define MOVING_AVERAGE_SAMPLES 2
 #endif
 
 #ifndef DEADZONE_THRESHOLD
-#define DEADZONE_THRESHOLD 0.1f
+#define DEADZONE_THRESHOLD 0.05f
 #endif
 
 #ifndef NOISE_THRESHOLD
-#define NOISE_THRESHOLD 0.05f
+#define NOISE_THRESHOLD 0.02f
 #endif
 
 //////// Sensor initialization steps definition //////////
@@ -689,19 +689,19 @@ static int pmw3610_report_data(const struct device *dev) {
     static float accum_x = 0, accum_y = 0;
 
     // 보간
-    float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
-    float interp_x = prev_x + (x - prev_x) * interp_factor;
-    float interp_y = prev_y + (y - prev_y) * interp_factor;
+    // float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
+    // float interp_x = prev_x + (x - prev_x) * interp_factor;
+    // float interp_y = prev_y + (y - prev_y) * interp_factor;
 
-    accum_x += interp_x;
-    accum_y += interp_y;
-    int16_t final_x = (int16_t)accum_x;
-    int16_t final_y = (int16_t)accum_y;
-    accum_x -= final_x;
-    accum_y -= final_y;
+    // accum_x += interp_x;
+    // accum_y += interp_y;
+    // int16_t final_x = (int16_t)accum_x;
+    // int16_t final_y = (int16_t)accum_y;
+    // accum_x -= final_x;
+    // accum_y -= final_y;
 
-    prev_x = x;
-    prev_y = y;
+    // prev_x = x;
+    // prev_y = y;
 
     // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
@@ -727,8 +727,8 @@ static int pmw3610_report_data(const struct device *dev) {
 
     if (final_x != 0 || final_y != 0) {
         if (input_mode != SCROLL) {
-            input_report_rel(dev, INPUT_REL_X, final_x, false, K_FOREVER);
-            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_X, final_x, false, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_NO_WAIT);
         } else {
             data->scroll_delta_x += final_x;
             data->scroll_delta_y += final_y;
