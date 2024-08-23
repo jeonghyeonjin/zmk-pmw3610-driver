@@ -623,13 +623,12 @@ static float apply_moving_average(float new_value, float* buffer) {
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     uint8_t buf[PMW3610_BURST_SIZE];
-    int err;
 
     if (unlikely(!data->ready)) {
         LOG_WRN("Device is not initialized yet");
-        return;
+        return -EBUSY;
     }
-    
+
     int32_t dividor;
     enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
     bool input_mode_changed = data->curr_mode != input_mode;
@@ -657,39 +656,54 @@ static int pmw3610_report_data(const struct device *dev) {
 
     data->curr_mode = input_mode;
 
-    err = motion_burst_read(dev, buf, sizeof(buf));
+    int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
-        LOG_ERR("Failed to read motion burst");
-        return;
+        return err;
     }
 
     int16_t raw_x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
-    float x = (float)raw_x / CONFIG_PMW3610_CPI_DIVIDOR;
-    float y = (float)raw_y / CONFIG_PMW3610_CPI_DIVIDOR;
+    float x = (float)raw_x / dividor;
+    float y = (float)raw_y / dividor;
 
-    // Simple noise filtering
+    // 노이즈 필터링
     if (fabsf(x) < NOISE_THRESHOLD) x = 0;
     if (fabsf(y) < NOISE_THRESHOLD) y = 0;
 
-    // Simplified moving average
-    static float prev_x = 0, prev_y = 0;
-    x = (x + prev_x) / 2;
-    y = (y + prev_y) / 2;
-    prev_x = x;
-    prev_y = y;
+    // 데드존 적용
+    if (sqrtf(x*x + y*y) < DEADZONE_THRESHOLD) {
+        x = 0;
+        y = 0;
+    }
 
-    // Apply speed factor
-    float speed_factor = 2.3f;
+    // 이동 평균 적용
+    x = apply_moving_average(x, moving_average_x);
+    y = apply_moving_average(y, moving_average_y);
+
+    float speed_factor = 2.3f; // 필요에 따라 조정
     x *= speed_factor;
     y *= speed_factor;
 
-    // Convert to integers
-    int16_t final_x = (int16_t)x;
-    int16_t final_y = (int16_t)y;
+    static float prev_x = 0, prev_y = 0;
+    static float accum_x = 0, accum_y = 0;
 
-    // Apply orientation and inversion
+    // 보간
+    float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
+    float interp_x = prev_x + (x - prev_x) * interp_factor;
+    float interp_y = prev_y + (y - prev_y) * interp_factor;
+
+    accum_x += interp_x;
+    accum_y += interp_y;
+    int16_t final_x = (int16_t)accum_x;
+    int16_t final_y = (int16_t)accum_y;
+    accum_x -= final_x;
+    accum_y -= final_y;
+
+    prev_x = x;
+    prev_y = y;
+
+    // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
         int16_t temp = final_x;
         final_x = final_y;
@@ -712,8 +726,26 @@ static int pmw3610_report_data(const struct device *dev) {
     }
 
     if (final_x != 0 || final_y != 0) {
-        input_report_rel(dev, INPUT_REL_X, final_x, false, K_NO_WAIT);
-        input_report_rel(dev, INPUT_REL_Y, final_y, true, K_NO_WAIT);
+        if (input_mode != SCROLL) {
+            input_report_rel(dev, INPUT_REL_X, final_x, false, K_FOREVER);
+            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_FOREVER);
+        } else {
+            data->scroll_delta_x += final_x;
+            data->scroll_delta_y += final_y;
+            if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
+                input_report_rel(dev, INPUT_REL_WHEEL,
+                                 data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
+                                 true, K_FOREVER);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
+                input_report_rel(dev, INPUT_REL_HWHEEL,
+                                 data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
+                                 true, K_FOREVER);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            }
+        }
     }
 
     return 0;
