@@ -649,8 +649,8 @@ static int pmw3610_report_data(const struct device *dev) {
 
     // 90도 회전 적용
     int16_t temp = x;
-    x = -y;  // y를 x로 이동하고 부호 반전
-    y = temp;  // 원래의 x를 y로 이동
+    x = y;
+    y = -temp;
 
 #if IS_ENABLED(CONFIG_PMW3610_SWAP_XY)
     int16_t a = x;
