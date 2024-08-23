@@ -644,10 +644,6 @@ static int pmw3610_report_data(const struct device *dev) {
         return err;
     }
 
-// 12-bit two's complement value to int16_t
-// adapted from https://stackoverflow.com/questions/70802306/convert-a-12-bit-signed-number-in-c
-#define TOINT16(val, bits) (((struct { int16_t value : bits; }){val}).value)
-
     int16_t x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
@@ -677,7 +673,6 @@ static int pmw3610_report_data(const struct device *dev) {
 #endif
 
 #if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    // purge accumulated delta, if last sampled had not been reported on last report tick
     if (now - last_smp_time >= CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
         dx = 0;
         dy = 0;
@@ -685,18 +680,15 @@ static int pmw3610_report_data(const struct device *dev) {
     last_smp_time = now;
 #endif
 
-    // accumulate delta until report in next iteration
     dx += x;
     dy += y;
 
 #if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    // strict to report inerval
     if (now - last_rpt_time < CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
         return 0;
     }
 #endif
 
-    // fetch report value
     int16_t rx = (int16_t)CLAMP(dx, INT16_MIN, INT16_MAX);
     int16_t ry = (int16_t)CLAMP(dy, INT16_MIN, INT16_MAX);
     bool have_x = rx != 0;
@@ -709,10 +701,10 @@ static int pmw3610_report_data(const struct device *dev) {
         dx = 0;
         dy = 0;
         if (have_x) {
-            input_report(dev, config->evt_type, config->x_input_code, rx, !have_y, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_X, rx, !have_y, K_NO_WAIT);
         }
         if (have_y) {
-            input_report(dev, config->evt_type, config->y_input_code, ry, true, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_Y, ry, true, K_NO_WAIT);
         }
     }
 
