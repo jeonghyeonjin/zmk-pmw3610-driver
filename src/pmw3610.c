@@ -629,6 +629,33 @@ static int pmw3610_report_data(const struct device *dev) {
         LOG_WRN("Device is not initialized yet");
         return;
     }
+    
+    int32_t dividor;
+    enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
+    bool input_mode_changed = data->curr_mode != input_mode;
+
+    switch (input_mode) {
+    case MOVE:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
+        dividor = CONFIG_PMW3610_CPI_DIVIDOR;
+        break;
+    case SCROLL:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
+        if (input_mode_changed) {
+            data->scroll_delta_x = 0;
+            data->scroll_delta_y = 0;
+        }
+        dividor = 1; // this should be handled with the ticks rather than dividors
+        break;
+    case SNIPE:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
+        dividor = CONFIG_PMW3610_SNIPE_CPI_DIVIDOR;
+        break;
+    default:
+        return -ENOTSUP;
+    }
+
+    data->curr_mode = input_mode;
 
     err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
