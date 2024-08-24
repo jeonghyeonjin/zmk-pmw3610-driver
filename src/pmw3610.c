@@ -24,14 +24,6 @@ LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
 #define MOVING_AVERAGE_SAMPLES 2
 #endif
 
-#ifndef DEADZONE_THRESHOLD
-#define DEADZONE_THRESHOLD 0.1f
-#endif
-
-#ifndef NOISE_THRESHOLD
-#define NOISE_THRESHOLD 0.05f
-#endif
-
 //////// Sensor initialization steps definition //////////
 // init is done in non-blocking manner (i.e., async), a //
 // delayable work is defined for this purpose           //
@@ -664,21 +656,32 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t raw_x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
+    // 노이즈 필터링 임계값
+    #define NOISE_THRESHOLD 0.01f
+    // 데드존 임계값
+    #define DEADZONE_THRESHOLD 0.05f
+
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
 
-    // 노이즈 필터링과 데드존 적용을 단순화
-    if (abs(raw_x) < NOISE_THRESHOLD) raw_x = 0;
-    if (abs(raw_y) < NOISE_THRESHOLD) raw_y = 0;
+    // 노이즈 필터링
+    if (fabsf(x) < NOISE_THRESHOLD) x = 0;
+    if (fabsf(y) < NOISE_THRESHOLD) y = 0;
 
     // 데드존 적용
-    if (sqrtf(x*x + y*y) < DEADZONE_THRESHOLD) {
+    float magnitude = sqrtf(x*x + y*y);
+    if (magnitude < DEADZONE_THRESHOLD) {
         x = 0;
         y = 0;
+    } else {
+        // 데드존 이상의 움직임에 대해 부드러운 전이를 적용
+        float scale = (magnitude - DEADZONE_THRESHOLD) / magnitude;
+        x *= scale;
+        y *= scale;
     }
 
-    int16_t final_x = raw_x / dividor;
-    int16_t final_y = raw_y / dividor;
+    int16_t final_x = (int16_t)roundf(x);
+    int16_t final_y = (int16_t)roundf(y);
 
     // 보간
     // float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
