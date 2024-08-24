@@ -935,23 +935,16 @@ static int pmw3610_init(const struct device *dev) {
     static int32_t snipe_layers##n[] = DT_PROP(DT_DRV_INST(n), snipe_layers);                      \
     static const struct pixart_config config##n = {                                                \
         .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
-        .bus =                                                                                     \
-            {                                                                                      \
-                .bus = DEVICE_DT_GET(DT_INST_BUS(n)),                                              \
-                .config =                                                                          \
-                    {                                                                              \
-                        .frequency = DT_INST_PROP(n, spi_max_frequency),                           \
-                        .operation =                                                               \
-                            SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_MODE_CPOL | SPI_MODE_CPHA,    \
-                        .slave = DT_INST_REG_ADDR(n),                                              \
-                    },                                                                             \
-            },                                                                                     \
+        .bus = SPI_DT_SPEC_INST_GET(n, SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_MODE_CPOL | SPI_MODE_CPHA, 0), \
         .cs_gpio = SPI_CS_GPIOS_DT_SPEC_GET(DT_DRV_INST(n)),                                       \
         .scroll_layers = scroll_layers##n,                                                         \
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
         .snipe_layers_len = DT_PROP_LEN(DT_DRV_INST(n), snipe_layers),                             \
         .enable_gpio = GPIO_DT_SPEC_INST_GET_OR(n, enable_gpios, {0}),                             \
+        .evt_type = INPUT_REL,                                                                     \
+        .x_input_code = INPUT_REL_X,                                                               \
+        .y_input_code = INPUT_REL_Y,                                                               \
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
