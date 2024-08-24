@@ -103,13 +103,27 @@ extern "C" {
 #define PMW3610_SVALUE_TO_CPI(svalue) ((uint32_t)(svalue).val1)
 #define PMW3610_SVALUE_TO_TIME(svalue) ((uint32_t)(svalue).val1)
 
-#if defined(CONFIG_PMW3610_POLLING_RATE_250) || defined(CONFIG_PMW3610_POLLING_RATE_125_SW)
+/* 폴링 레이트 설정 최적화 */
+#if defined(CONFIG_PMW3610_POLLING_RATE_1000)
+#define PMW3610_POLLING_RATE_VALUE 0x0F
+#elif defined(CONFIG_PMW3610_POLLING_RATE_500)
+#define PMW3610_POLLING_RATE_VALUE 0x0E
+#elif defined(CONFIG_PMW3610_POLLING_RATE_250) || defined(CONFIG_PMW3610_POLLING_RATE_125_SW)
 #define PMW3610_POLLING_RATE_VALUE 0x0D
 #elif defined(CONFIG_PMW3610_POLLING_RATE_125)
 #define PMW3610_POLLING_RATE_VALUE 0x00
 #else
 #error "A valid PMW3610 polling rate must be selected"
 #endif
+
+/* 성능 모드 최적화 */
+#ifdef CONFIG_PMW3610_HIGH_PERFORMANCE
+#define PMW3610_FORCE_MODE_VALUE 0xF0
+#else
+#define PMW3610_FORCE_MODE_VALUE 0x00
+#endif
+
+#define PMW3610_PERFORMANCE_VALUE (PMW3610_FORCE_MODE_VALUE | PMW3610_POLLING_RATE_VALUE)
 
 #ifdef CONFIG_PMW3610_FORCE_AWAKE
 #define PMW3610_FORCE_MODE_VALUE 0xF0
@@ -134,38 +148,6 @@ extern "C" {
 #define PMW3610_SCROLL_Y_NEGATIVE -1
 #define PMW3610_SCROLL_Y_POSITIVE 1
 #endif
-
-/* 폴링 레이트 설정 최적화 */
-#if defined(CONFIG_PMW3610_POLLING_RATE_1000)
-#define PMW3610_POLLING_RATE_VALUE 0x0F
-#elif defined(CONFIG_PMW3610_POLLING_RATE_500)
-#define PMW3610_POLLING_RATE_VALUE 0x0E
-#elif defined(CONFIG_PMW3610_POLLING_RATE_250)
-#define PMW3610_POLLING_RATE_VALUE 0x0D
-#else
-#define PMW3610_POLLING_RATE_VALUE 0x00  // 기본값 125Hz
-#endif
-
-/* 성능 모드 설정 */
-#define PMW3610_PERFORMANCE_MODE_HIGH 0x80
-#define PMW3610_PERFORMANCE_MODE_LOW  0x00
-
-/* 데이터 버스트 모드 설정 */
-#define PMW3610_BURST_MODE_ENABLE  0x01
-#define PMW3610_BURST_MODE_DISABLE 0x00
-
-/* 최적화된 성능 값 설정 */
-#define PMW3610_PERFORMANCE_VALUE (PMW3610_PERFORMANCE_MODE_HIGH | PMW3610_POLLING_RATE_VALUE)
-
-/* 데이터 처리 최적화를 위한 설정 */
-#define PMW3610_DATA_SMOOTHING_FACTOR 0.7f
-#define PMW3610_MOTION_THRESHOLD      2
-
-/* 블루투스 통신 최적화를 위한 설정 */
-#define PMW3610_BT_MIN_INTERVAL 6  // 7.5ms (6 * 1.25ms)
-#define PMW3610_BT_MAX_INTERVAL 8  // 10ms  (8 * 1.25ms)
-#define PMW3610_BT_LATENCY      0
-#define PMW3610_BT_TIMEOUT      100 // 1s (100 * 10ms)
 
 #ifdef __cplusplus
 }
