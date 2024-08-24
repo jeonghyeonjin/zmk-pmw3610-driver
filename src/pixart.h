@@ -20,6 +20,7 @@ enum pixart_input_mode { MOVE = 0, SCROLL, SNIPE };
 /* device data structure */
 struct pixart_data {
     const struct device *dev;
+    bool                         sw_smart_flag; // for pmw3610 smart algorithm
 
     // Enable GPIO callback
     struct gpio_callback enable_gpio_cb;
@@ -61,12 +62,16 @@ struct pixart_data {
 // device config data structure
 struct pixart_config {
     struct gpio_dt_spec irq_gpio;
+    uint16_t cpi;
     struct spi_dt_spec bus;
     struct gpio_dt_spec cs_gpio;
     size_t scroll_layers_len;
     int32_t *scroll_layers;
     size_t snipe_layers_len;
     int32_t *snipe_layers;
+    uint8_t evt_type;
+    uint8_t x_input_code;
+    uint8_t y_input_code;
 
     struct gpio_dt_spec enable_gpio;
 };

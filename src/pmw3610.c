@@ -942,6 +942,9 @@ static int pmw3610_init(const struct device *dev) {
                     },                                                                             \
             },                                                                                     \
         .cs_gpio = SPI_CS_GPIOS_DT_SPEC_GET(DT_DRV_INST(n)),                                       \
+        .evt_type = DT_PROP(DT_DRV_INST(n), evt_type),                                             \
+        .x_input_code = DT_PROP(DT_DRV_INST(n), x_input_code),                                     \
+        .y_input_code = DT_PROP(DT_DRV_INST(n), y_input_code),                                     \
         .scroll_layers = scroll_layers##n,                                                         \
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
@@ -950,6 +953,6 @@ static int pmw3610_init(const struct device *dev) {
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
-                          CONFIG_SENSOR_INIT_PRIORITY, NULL);
+                          CONFIG_SENSOR_INIT_PRIORITY,  &pmw3610_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(PMW3610_DEFINE)
