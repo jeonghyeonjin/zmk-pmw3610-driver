@@ -636,23 +636,29 @@ static int pmw3610_report_data(const struct device *dev) {
         return err;
     }
 
-// 12-bit two's complement value to int16_t
-// adapted from https://stackoverflow.com/questions/70802306/convert-a-12-bit-signed-number-in-c
-#define TOINT16(val, bits) (((struct { int16_t value : bits; }){val}).value)
+    // 12-bit two's complement value to int16_t
+    // adapted from https://stackoverflow.com/questions/70802306/convert-a-12-bit-signed-number-in-c
+    #define TOINT16(val, bits) (((struct { int16_t value : bits; }){val}).value)
 
     int16_t x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
-#if IS_ENABLED(CONFIG_PMW3610_INVERT_Y)
-    y = -y;
-#endif
+
 #if IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)
     int16_t a = x;
     x = y;
     y = -a;
 #endif
+
+#if IS_ENABLED(CONFIG_PMW3610_SWAP_XY)
+    int16_t a = x;
+    x = y;
+    y = a;
+#endif
+
 #if IS_ENABLED(CONFIG_PMW3610_INVERT_X)
     x = -x;
 #endif
+
 #if IS_ENABLED(CONFIG_PMW3610_INVERT_Y)
     y = -y;
 #endif
@@ -684,7 +690,7 @@ static int pmw3610_report_data(const struct device *dev) {
     dy += y;
 
 #if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    // strict to report inerval
+    // strict to report interval
     if (now - last_rpt_time < CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
         return 0;
     }
@@ -712,7 +718,6 @@ static int pmw3610_report_data(const struct device *dev) {
 
     return err;
 }
-
 
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
@@ -942,9 +947,6 @@ static int pmw3610_init(const struct device *dev) {
                     },                                                                             \
             },                                                                                     \
         .cs_gpio = SPI_CS_GPIOS_DT_SPEC_GET(DT_DRV_INST(n)),                                       \
-        .evt_type = DT_PROP(DT_DRV_INST(n), evt_type),                                             \
-        .x_input_code = DT_PROP(DT_DRV_INST(n), x_input_code),                                     \
-        .y_input_code = DT_PROP(DT_DRV_INST(n), y_input_code),                                     \
         .scroll_layers = scroll_layers##n,                                                         \
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
@@ -953,6 +955,6 @@ static int pmw3610_init(const struct device *dev) {
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
-                          CONFIG_SENSOR_INIT_PRIORITY,  &pmw3610_driver_api);
+                          CONFIG_SENSOR_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(PMW3610_DEFINE)
