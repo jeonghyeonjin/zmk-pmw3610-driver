@@ -649,12 +649,6 @@ static int pmw3610_report_data(const struct device *dev) {
 
     data->curr_mode = input_mode;
 
-    #if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-        static int64_t last_smp_time = 0;
-        static int64_t last_rpt_time = 0;
-        int64_t now = k_uptime_get();
-    #endif
-
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
         return err;
