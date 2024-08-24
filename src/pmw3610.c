@@ -622,48 +622,50 @@ static int pmw3610_report_data(const struct device *dev) {
         return -EBUSY;
     }
 
-    static int64_t dx = 0;
-    static int64_t dy = 0;
+    int32_t dividor;
+    enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
+    bool input_mode_changed = data->curr_mode != input_mode;
 
-#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    static int64_t last_smp_time = 0;
-    static int64_t last_rpt_time = 0;
-    int64_t now = k_uptime_get();
-#endif
+    switch (input_mode) {
+    case MOVE:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
+        dividor = CONFIG_PMW3610_CPI_DIVIDOR;
+        break;
+    case SCROLL:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
+        if (input_mode_changed) {
+            data->scroll_delta_x = 0;
+            data->scroll_delta_y = 0;
+        }
+        dividor = 1; // this should be handled with the ticks rather than dividors
+        break;
+    case SNIPE:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
+        dividor = CONFIG_PMW3610_SNIPE_CPI_DIVIDOR;
+        break;
+    default:
+        return -ENOTSUP;
+    }
+
+    data->curr_mode = input_mode;
+
+    #if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
+        static int64_t last_smp_time = 0;
+        static int64_t last_rpt_time = 0;
+        int64_t now = k_uptime_get();
+    #endif
 
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
         return err;
     }
 
-    // 12-bit two's complement value to int16_t
-    // adapted from https://stackoverflow.com/questions/70802306/convert-a-12-bit-signed-number-in-c
     #define TOINT16(val, bits) (((struct { int16_t value : bits; }){val}).value)
 
     int16_t x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
     int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
-#if IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)
-    int16_t a = x;
-    x = y;
-    y = -a;
-#endif
-
-#if IS_ENABLED(CONFIG_PMW3610_SWAP_XY)
-    int16_t a = x;
-    x = y;
-    y = a;
-#endif
-
-#if IS_ENABLED(CONFIG_PMW3610_INVERT_X)
-    x = -x;
-#endif
-
-#if IS_ENABLED(CONFIG_PMW3610_INVERT_Y)
-    y = -y;
-#endif
-
-#ifdef CONFIG_PMW3610_SMART_ALGORITHM
+    #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter = ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) 
                     + buf[PMW3610_SHUTTER_L_POS];
     if (data->sw_smart_flag && shutter < 45) {
@@ -676,47 +678,52 @@ static int pmw3610_report_data(const struct device *dev) {
     }
 #endif
 
-#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    // purge accumulated delta, if last sampled had not been reported on last report tick
-    if (now - last_smp_time >= CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
-        dx = 0;
-        dy = 0;
+    // 방향 및 반전 적용
+    if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
+        int16_t temp = x;
+        x = y;
+        y = -temp;
+    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_180)) {
+        x = -x;
+        y = -y;
+    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_270)) {
+        int16_t temp = x;
+        x = -y;
+        y = temp;
     }
-    last_smp_time = now;
-#endif
 
-    // accumulate delta until report in next iteration
-    dx += x;
-    dy += y;
-
-#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-    // strict to report interval
-    if (now - last_rpt_time < CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
-        return 0;
+    if (IS_ENABLED(CONFIG_PMW3610_INVERT_X)) {
+        x = -x;
     }
-#endif
 
-    // fetch report value
-    int16_t rx = (int16_t)CLAMP(dx, INT16_MIN, INT16_MAX);
-    int16_t ry = (int16_t)CLAMP(dy, INT16_MIN, INT16_MAX);
-    bool have_x = rx != 0;
-    bool have_y = ry != 0;
+    if (IS_ENABLED(CONFIG_PMW3610_INVERT_Y)) {
+        y = -y;
+    }
 
-    if (have_x || have_y) {
-#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
-        last_rpt_time = now;
-#endif
-        dx = 0;
-        dy = 0;
-        if (have_x) {
-            input_report(dev, config->evt_type, config->x_input_code, rx, !have_y, K_NO_WAIT);
+    if (x != 0 || y != 0) {
+        if (input_mode != SCROLL) {
+            input_report_rel(dev, INPUT_REL_X, x, false, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_Y, y, true, K_NO_WAIT);
+        } else {
+            data->scroll_delta_x += x;
+            data->scroll_delta_y += y;
+            if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
+                input_report_rel(dev, INPUT_REL_WHEEL,
+                                 data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
+                                 true, K_NO_WAIT);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
+                input_report_rel(dev, INPUT_REL_HWHEEL,
+                                 data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
+                                 true, K_NO_WAIT);
+                data->scroll_delta_x = 0;
+                data->scroll_delta_y = 0;
+            }
         }
-        if (have_y) {
-            input_report(dev, config->evt_type, config->y_input_code, ry, true, K_NO_WAIT);
-        }
     }
 
-    return err;
+    return 0;
 }
 
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
@@ -918,74 +925,23 @@ static int pmw3610_init(const struct device *dev) {
     // The sensor is ready to work after the above steps are completed (data->ready = true)
     k_work_init_delayable(&data->init_work, pmw3610_async_init);
 
+    LOG_INF("Scheduling async init work");
     k_work_schedule(&data->init_work, K_MSEC(async_init_delay[data->async_init_step]));
 
     // Set initial automouse layer state
+    LOG_INF("Setting initial automouse layer state");
     update_automouse_layer(dev);
 
+    LOG_INF("Initialization complete");
     return err;
 }
-
-static int pmw3610_attr_set(const struct device *dev, enum sensor_channel chan,
-                            enum sensor_attribute attr, const struct sensor_value *val) {
-    struct pixart_data *data = dev->data;
-    int err;
-
-    if (unlikely(chan != SENSOR_CHAN_ALL)) {
-        return -ENOTSUP;
-    }
-
-    if (unlikely(!data->ready)) {
-        LOG_DBG("Device is not initialized yet");
-        return -EBUSY;
-    }
-
-    switch ((uint32_t)attr) {
-    case PMW3610_ATTR_CPI:
-        err = set_cpi(dev, PMW3610_SVALUE_TO_CPI(*val));
-        break;
-
-    case PMW3610_ATTR_RUN_DOWNSHIFT_TIME:
-        err = set_downshift_time(dev, PMW3610_REG_RUN_DOWNSHIFT, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    case PMW3610_ATTR_REST1_DOWNSHIFT_TIME:
-        err = set_downshift_time(dev, PMW3610_REG_REST1_DOWNSHIFT, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    case PMW3610_ATTR_REST2_DOWNSHIFT_TIME:
-        err = set_downshift_time(dev, PMW3610_REG_REST2_DOWNSHIFT, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    case PMW3610_ATTR_REST1_SAMPLE_TIME:
-        err = set_sample_time(dev, PMW3610_REG_REST1_RATE, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    case PMW3610_ATTR_REST2_SAMPLE_TIME:
-        err = set_sample_time(dev, PMW3610_REG_REST2_RATE, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    case PMW3610_ATTR_REST3_SAMPLE_TIME:
-        err = set_sample_time(dev, PMW3610_REG_REST3_RATE, PMW3610_SVALUE_TO_TIME(*val));
-        break;
-
-    default:
-        LOG_ERR("Unknown attribute");
-        err = -ENOTSUP;
-    }
-
-    return err;
-}
-
-static const struct sensor_driver_api pmw3610_driver_api = {
-    .attr_set = pmw3610_attr_set,
-};
 
 #define PMW3610_DEFINE(n)                                                                          \
     static struct pixart_data data##n;                                                             \
+    static int32_t scroll_layers##n[] = DT_PROP(DT_DRV_INST(n), scroll_layers);                    \
+    static int32_t snipe_layers##n[] = DT_PROP(DT_DRV_INST(n), snipe_layers);                      \
     static const struct pixart_config config##n = {                                                \
         .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
-        .cpi = DT_PROP(DT_DRV_INST(n), cpi),                                                       \
         .bus =                                                                                     \
             {                                                                                      \
                 .bus = DEVICE_DT_GET(DT_INST_BUS(n)),                                              \
@@ -993,22 +949,19 @@ static const struct sensor_driver_api pmw3610_driver_api = {
                     {                                                                              \
                         .frequency = DT_INST_PROP(n, spi_max_frequency),                           \
                         .operation =                                                               \
-                            ( \
-                              SPI_WORD_SET(8) \
-                            | SPI_TRANSFER_MSB \
-                            | SPI_MODE_CPOL \
-                            | SPI_MODE_CPHA \
-                            ), \
+                            SPI_WORD_SET(8) | SPI_TRANSFER_MSB | SPI_MODE_CPOL | SPI_MODE_CPHA,    \
                         .slave = DT_INST_REG_ADDR(n),                                              \
                     },                                                                             \
             },                                                                                     \
         .cs_gpio = SPI_CS_GPIOS_DT_SPEC_GET(DT_DRV_INST(n)),                                       \
-        .evt_type = DT_PROP(DT_DRV_INST(n), evt_type),                                             \
-        .x_input_code = DT_PROP(DT_DRV_INST(n), x_input_code),                                     \
-        .y_input_code = DT_PROP(DT_DRV_INST(n), y_input_code),                                     \
+        .scroll_layers = scroll_layers##n,                                                         \
+        .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
+        .snipe_layers = snipe_layers##n,                                                           \
+        .snipe_layers_len = DT_PROP_LEN(DT_DRV_INST(n), snipe_layers),                             \
+        .enable_gpio = GPIO_DT_SPEC_INST_GET_OR(n, enable_gpios, {0}),                             \
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
-                          CONFIG_SENSOR_INIT_PRIORITY, &pmw3610_driver_api);
+                          CONFIG_SENSOR_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(PMW3610_DEFINE)
