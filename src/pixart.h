@@ -10,17 +10,9 @@
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/sensor.h>
-#include <zephyr/input/input.h>
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-// input_event_type이 정의되지 않은 경우를 위한 대체 정의
-#ifndef INPUT_EV_REL
-enum input_event_type {
-    INPUT_EV_REL,
-};
 #endif
 
 enum pixart_input_mode { MOVE = 0, SCROLL, SNIPE };
@@ -75,9 +67,9 @@ struct pixart_config {
     int32_t *snipe_layers;
 
     struct gpio_dt_spec enable_gpio;
-    enum input_event_type evt_type;
-    uint16_t x_input_code;
-    uint16_t y_input_code;
+    uint8_t evt_type;
+    uint8_t x_input_code;
+    uint8_t y_input_code;
 };
 
 #ifdef __cplusplus
