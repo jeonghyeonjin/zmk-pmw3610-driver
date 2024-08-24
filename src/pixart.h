@@ -16,6 +16,13 @@
 extern "C" {
 #endif
 
+// input_event_type이 정의되지 않은 경우를 위한 대체 정의
+#ifndef INPUT_EV_REL
+enum input_event_type {
+    INPUT_EV_REL,
+};
+#endif
+
 enum pixart_input_mode { MOVE = 0, SCROLL, SNIPE };
 
 /* device data structure */
