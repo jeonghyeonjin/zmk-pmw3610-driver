@@ -141,17 +141,6 @@ config PMW3610_ACCELERATION_THRESHOLD
     help
       The threshold at which mouse acceleration begins to take effect.
 
-      config PMW3610_POLLING_RATE_1000
-      bool "Enable 1000Hz polling rate for PMW3610"
-  
-  config PMW3610_POLLING_RATE_500
-      bool "Enable 500Hz polling rate for PMW3610"
-  
-  config PMW3610_HIGH_PERFORMANCE
-      bool "Enable high performance mode for PMW3610"
-      help
-        This option enables the highest performance mode for the PMW3610 sensor.
-
 choice
     prompt "Select PMW3610 sensor orientation"
     default PMW3610_ORIENTATION_0
