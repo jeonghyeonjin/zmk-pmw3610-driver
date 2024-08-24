@@ -666,17 +666,17 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
     #ifdef CONFIG_PMW3610_SMART_ALGORITHM
-    int16_t shutter = ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) 
-                    + buf[PMW3610_SHUTTER_L_POS];
-    if (data->sw_smart_flag && shutter < 45) {
-        reg_write(dev, 0x32, 0x00);
-        data->sw_smart_flag = false;
-    }
-    if (!data->sw_smart_flag && shutter > 45) {
-        reg_write(dev, 0x32, 0x80);
-        data->sw_smart_flag = true;
-    }
-#endif
+        int16_t shutter = ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) 
+                        + buf[PMW3610_SHUTTER_L_POS];
+        if (data->sw_smart_flag && shutter < 45) {
+            reg_write(dev, 0x32, 0x00);
+            data->sw_smart_flag = false;
+        }
+        if (!data->sw_smart_flag && shutter > 45) {
+            reg_write(dev, 0x32, 0x80);
+            data->sw_smart_flag = true;
+        }
+    #endif
 
     // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {

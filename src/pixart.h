@@ -67,9 +67,6 @@ struct pixart_config {
     int32_t *snipe_layers;
 
     struct gpio_dt_spec enable_gpio;
-    enum input_event_type evt_type;
-    uint16_t x_input_code;
-    uint16_t y_input_code;
 };
 
 #ifdef __cplusplus
