@@ -657,9 +657,7 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
 
     // 노이즈 필터링 임계값
-    #define NOISE_THRESHOLD 0.01f
-    // 데드존 임계값
-    #define DEADZONE_THRESHOLD 0.05f
+    #define NOISE_THRESHOLD 0.005f
 
     float x = (float)raw_x / dividor;
     float y = (float)raw_y / dividor;
@@ -668,17 +666,9 @@ static int pmw3610_report_data(const struct device *dev) {
     if (fabsf(x) < NOISE_THRESHOLD) x = 0;
     if (fabsf(y) < NOISE_THRESHOLD) y = 0;
 
-    // 데드존 적용
-    float magnitude = sqrtf(x*x + y*y);
-    if (magnitude < DEADZONE_THRESHOLD) {
-        x = 0;
-        y = 0;
-    } else {
-        // 데드존 이상의 움직임에 대해 부드러운 전이를 적용
-        float scale = (magnitude - DEADZONE_THRESHOLD) / magnitude;
-        x *= scale;
-        y *= scale;
-    }
+    // 부드러운 움직임을 위한 이동 평균 필터 적용
+    x = apply_moving_average(x, moving_average_x);
+    y = apply_moving_average(y, moving_average_y);
 
     int16_t final_x = (int16_t)roundf(x);
     int16_t final_y = (int16_t)roundf(y);
