@@ -614,6 +614,7 @@ static float apply_moving_average(float new_value, float* buffer) {
 
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
+    const struct pixart_config *config = dev->config;
     uint8_t buf[PMW3610_BURST_SIZE];
 
     if (unlikely(!data->ready)) {
@@ -621,120 +622,97 @@ static int pmw3610_report_data(const struct device *dev) {
         return -EBUSY;
     }
 
-    int32_t dividor;
-    enum pixart_input_mode input_mode = get_input_mode_for_current_layer(dev);
-    bool input_mode_changed = data->curr_mode != input_mode;
+    static int64_t dx = 0;
+    static int64_t dy = 0;
 
-    switch (input_mode) {
-    case MOVE:
-        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
-        dividor = CONFIG_PMW3610_CPI_DIVIDOR;
-        break;
-    case SCROLL:
-        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
-        if (input_mode_changed) {
-            data->scroll_delta_x = 0;
-            data->scroll_delta_y = 0;
-        }
-        dividor = 1; // this should be handled with the ticks rather than dividors
-        break;
-    case SNIPE:
-        set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
-        dividor = CONFIG_PMW3610_SNIPE_CPI_DIVIDOR;
-        break;
-    default:
-        return -ENOTSUP;
-    }
-
-    data->curr_mode = input_mode;
+#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
+    static int64_t last_smp_time = 0;
+    static int64_t last_rpt_time = 0;
+    int64_t now = k_uptime_get();
+#endif
 
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
         return err;
     }
 
-    int16_t raw_x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
-    int16_t raw_y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
+// 12-bit two's complement value to int16_t
+// adapted from https://stackoverflow.com/questions/70802306/convert-a-12-bit-signed-number-in-c
+#define TOINT16(val, bits) (((struct { int16_t value : bits; }){val}).value)
 
-    // 노이즈 필터링 임계값
-    #define NOISE_THRESHOLD 0.005f
+    int16_t x = TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12);
+    int16_t y = TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12);
+#if IS_ENABLED(CONFIG_PMW3610_INVERT_Y)
+    y = -y;
+#endif
+#if IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)
+    int16_t a = x;
+    x = y;
+    y = -a;
+#endif
+#if IS_ENABLED(CONFIG_PMW3610_INVERT_X)
+    x = -x;
+#endif
+#if IS_ENABLED(CONFIG_PMW3610_INVERT_Y)
+    y = -y;
+#endif
 
-    float x = (float)raw_x / dividor;
-    float y = (float)raw_y / dividor;
-
-    // 노이즈 필터링
-    if (fabsf(x) < NOISE_THRESHOLD) x = 0;
-    if (fabsf(y) < NOISE_THRESHOLD) y = 0;
-
-    // 부드러운 움직임을 위한 이동 평균 필터 적용
-    x = apply_moving_average(x, moving_average_x);
-    y = apply_moving_average(y, moving_average_y);
-
-    int16_t final_x = (int16_t)roundf(x);
-    int16_t final_y = (int16_t)roundf(y);
-
-    // 보간
-    // float interp_factor = 0.7f; // 0.0 ~ 1.0, 높을수록 더 부드러움
-    // float interp_x = prev_x + (x - prev_x) * interp_factor;
-    // float interp_y = prev_y + (y - prev_y) * interp_factor;
-
-    // accum_x += interp_x;
-    // accum_y += interp_y;
-    // int16_t final_x = (int16_t)accum_x;
-    // int16_t final_y = (int16_t)accum_y;
-    // accum_x -= final_x;
-    // accum_y -= final_y;
-
-    // prev_x = x;
-    // prev_y = y;
-
-    // 방향 및 반전 적용
-    if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
-        int16_t temp = final_x;
-        final_x = final_y;
-        final_y = -temp;
-    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_180)) {
-        final_x = -final_x;
-        final_y = -final_y;
-    } else if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_270)) {
-        int16_t temp = final_x;
-        final_x = -final_y;
-        final_y = temp;
+#ifdef CONFIG_PMW3610_SMART_ALGORITHM
+    int16_t shutter = ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) 
+                    + buf[PMW3610_SHUTTER_L_POS];
+    if (data->sw_smart_flag && shutter < 45) {
+        reg_write(dev, 0x32, 0x00);
+        data->sw_smart_flag = false;
     }
-
-    if (IS_ENABLED(CONFIG_PMW3610_INVERT_X)) {
-        final_x = -final_x;
+    if (!data->sw_smart_flag && shutter > 45) {
+        reg_write(dev, 0x32, 0x80);
+        data->sw_smart_flag = true;
     }
+#endif
 
-    if (IS_ENABLED(CONFIG_PMW3610_INVERT_Y)) {
-        final_y = -final_y;
+#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
+    // purge accumulated delta, if last sampled had not been reported on last report tick
+    if (now - last_smp_time >= CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
+        dx = 0;
+        dy = 0;
     }
+    last_smp_time = now;
+#endif
 
-    if (final_x != 0 || final_y != 0) {
-        if (input_mode != SCROLL) {
-            input_report_rel(dev, INPUT_REL_X, final_x, false, K_FOREVER);
-            input_report_rel(dev, INPUT_REL_Y, final_y, true, K_FOREVER);
-        } else {
-            data->scroll_delta_x += final_x;
-            data->scroll_delta_y += final_y;
-            if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
-                input_report_rel(dev, INPUT_REL_WHEEL,
-                                 data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
-                                 true, K_FOREVER);
-                data->scroll_delta_x = 0;
-                data->scroll_delta_y = 0;
-            } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
-                input_report_rel(dev, INPUT_REL_HWHEEL,
-                                 data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
-                                 true, K_FOREVER);
-                data->scroll_delta_x = 0;
-                data->scroll_delta_y = 0;
-            }
+    // accumulate delta until report in next iteration
+    dx += x;
+    dy += y;
+
+#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
+    // strict to report inerval
+    if (now - last_rpt_time < CONFIG_PMW3610_REPORT_INTERVAL_MIN) {
+        return 0;
+    }
+#endif
+
+    // fetch report value
+    int16_t rx = (int16_t)CLAMP(dx, INT16_MIN, INT16_MAX);
+    int16_t ry = (int16_t)CLAMP(dy, INT16_MIN, INT16_MAX);
+    bool have_x = rx != 0;
+    bool have_y = ry != 0;
+
+    if (have_x || have_y) {
+#if CONFIG_PMW3610_REPORT_INTERVAL_MIN > 0
+        last_rpt_time = now;
+#endif
+        dx = 0;
+        dy = 0;
+        if (have_x) {
+            input_report(dev, config->evt_type, config->x_input_code, rx, !have_y, K_NO_WAIT);
+        }
+        if (have_y) {
+            input_report(dev, config->evt_type, config->y_input_code, ry, true, K_NO_WAIT);
         }
     }
 
-    return 0;
+    return err;
 }
+
 
 static void pmw3610_enable_gpio_work_callback(struct k_work *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, enable_gpio_work);
