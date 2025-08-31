@@ -101,31 +101,6 @@ config PMW3610_BT_BATCH_SIZE
       Number of motion samples to batch before sending a report over Bluetooth.
       Higher values reduce Bluetooth traffic but may increase latency.
 
-config PMW3610_SMOOTH_MOTION
-    bool "Enable motion smoothing for smoother cursor movement"
-    default y
-    depends on PMW3610_BLUETOOTH_OPTIMIZATION
-    help
-      Enable motion smoothing to reduce jerky movement on Bluetooth connections.
-      Uses interpolation to create smoother cursor movement.
-
-config PMW3610_SMOOTH_FACTOR
-    int "Motion smoothing factor"
-    default 8
-    range 1 20
-    depends on PMW3610_SMOOTH_MOTION
-    help
-      Higher values create smoother but more delayed movement.
-      Lower values are more responsive but may be jerky.
-
-config PMW3610_ADAPTIVE_BATCHING
-    bool "Enable adaptive motion batching"
-    default y
-    depends on PMW3610_BLUETOOTH_OPTIMIZATION
-    help
-      Dynamically adjust batch size based on motion speed.
-      Faster movements use smaller batches for responsiveness.
-
 config PMW3610_FORCE_AWAKE
     bool "PMW3610 forced awake mode"
     help

@@ -617,70 +617,11 @@ static void pmw3610_bt_motion_batch_timeout(struct k_work_delayable *work) {
         data->motion_batch_y = 0;
         data->batch_count = 0;
         
-#ifdef CONFIG_PMW3610_SMOOTH_MOTION
-        // Use smooth motion if enabled
-        if (data->smoothing_active) {
-            // Update target for smoothing
-            data->target_x += x;
-            data->target_y += y;
-        } else {
-            // Start new smooth motion
-            data->target_x = data->smooth_x + x;
-            data->target_y = data->smooth_y + y;
-            data->smoothing_active = true;
-            data->last_smooth_time = k_uptime_get();
-            k_work_schedule(&data->smooth_work, K_MSEC(2));
-        }
-#else
-        // Send the batched motion directly
+        // Send the batched motion
         if (x != 0 || y != 0) {
             input_report_rel(dev, INPUT_REL_X, x, false, K_NO_WAIT);
             input_report_rel(dev, INPUT_REL_Y, y, true, K_NO_WAIT);
         }
-#endif
-    }
-}
-#endif
-
-#ifdef CONFIG_PMW3610_SMOOTH_MOTION
-static void pmw3610_smooth_motion_timeout(struct k_work_delayable *work) {
-    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, smooth_work);
-    const struct device *dev = data->dev;
-    
-    if (data->smoothing_active) {
-        int64_t current_time = k_uptime_get();
-        float delta_time = (current_time - data->last_smooth_time) / 1000.0f;
-        
-        // Interpolate towards target
-        float dx = (data->target_x - data->smooth_x) * delta_time * CONFIG_PMW3610_SMOOTH_FACTOR;
-        float dy = (data->target_y - data->smooth_y) * delta_time * CONFIG_PMW3610_SMOOTH_FACTOR;
-        
-        data->smooth_x += dx;
-        data->smooth_y += dy;
-        
-        // Send interpolated motion
-        int16_t send_x = (int16_t)data->smooth_x;
-        int16_t send_y = (int16_t)data->smooth_y;
-        
-        if (send_x != 0 || send_y != 0) {
-            input_report_rel(dev, INPUT_REL_X, send_x, false, K_NO_WAIT);
-            input_report_rel(dev, INPUT_REL_Y, send_y, true, K_NO_WAIT);
-        }
-        
-        // Check if we're close enough to target
-        float distance = (data->target_x - data->smooth_x) * (data->target_x - data->smooth_x) + 
-                        (data->target_y - data->smooth_y) * (data->target_y - data->smooth_y);
-        
-        if (distance < 0.1f) {
-            data->smoothing_active = false;
-            data->smooth_x = data->target_x;
-            data->smooth_y = data->target_y;
-        } else {
-            // Continue smoothing
-            k_work_schedule(&data->smooth_work, K_MSEC(2));
-        }
-        
-        data->last_smooth_time = current_time;
     }
 }
 #endif
@@ -785,36 +726,13 @@ static int pmw3610_report_data(const struct device *dev) {
             return 0; // Ignore small movements
         }
         
-#ifdef CONFIG_PMW3610_ADAPTIVE_BATCHING
-        // Calculate motion magnitude for adaptive batching
-        int16_t motion_magnitude = (x < 0 ? -x : x) + (y < 0 ? -y : y);
-        int64_t current_time = k_uptime_get();
-        
-        // Adjust batch size based on motion speed
-        if (motion_magnitude > 10) {
-            // Fast movement - use smaller batch for responsiveness
-            data->current_batch_size = 1;
-        } else if (motion_magnitude > 5) {
-            // Medium movement
-            data->current_batch_size = 2;
-        } else {
-            // Slow movement - use larger batch for efficiency
-            data->current_batch_size = CONFIG_PMW3610_BT_BATCH_SIZE;
-        }
-        
-        data->last_motion_magnitude = motion_magnitude;
-        data->last_motion_time = current_time;
-#else
-        data->current_batch_size = CONFIG_PMW3610_BT_BATCH_SIZE;
-#endif
-
         // Simple motion batching for Bluetooth optimization
         data->motion_batch_x += x;
         data->motion_batch_y += y;
         data->batch_count++;
         
         // Send immediately if batch is full
-        if (data->batch_count >= data->current_batch_size) {
+        if (data->batch_count >= CONFIG_PMW3610_BT_BATCH_SIZE) {
             x = data->motion_batch_x;
             y = data->motion_batch_y;
             
@@ -824,7 +742,7 @@ static int pmw3610_report_data(const struct device *dev) {
             data->batch_count = 0;
         } else {
             // Schedule a timeout to send remaining batched data
-            k_work_schedule(&data->bt_batch_work, K_MSEC(3));
+            k_work_schedule(&data->bt_batch_work, K_MSEC(5));
             return 0;
         }
 #endif
@@ -987,26 +905,6 @@ static int pmw3610_init(const struct device *dev) {
     data->motion_batch_x = 0;
     data->motion_batch_y = 0;
     data->batch_count = 0;
-    
-#ifdef CONFIG_PMW3610_SMOOTH_MOTION
-    LOG_INF("Initializing motion smoothing work");
-    k_work_init_delayable(&data->smooth_work, pmw3610_smooth_motion_timeout);
-    
-    // Initialize motion smoothing variables
-    data->smooth_x = 0.0f;
-    data->smooth_y = 0.0f;
-    data->target_x = 0.0f;
-    data->target_y = 0.0f;
-    data->last_smooth_time = 0;
-    data->smoothing_active = false;
-#endif
-
-#ifdef CONFIG_PMW3610_ADAPTIVE_BATCHING
-    // Initialize adaptive batching variables
-    data->current_batch_size = CONFIG_PMW3610_BT_BATCH_SIZE;
-    data->last_motion_magnitude = 0;
-    data->last_motion_time = 0;
-#endif
 #endif
 
     if (config->enable_gpio.port) {
