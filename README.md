@@ -98,3 +98,58 @@ CONFIG_INPUT=y
 CONFIG_ZMK_MOUSE=y
 CONFIG_PMW3610=y
 ```
+
+## macOS Optimization
+
+If you experience slow cursor movement or lag on macOS, the driver includes specific optimizations:
+
+### Recommended Configuration for macOS
+
+Add these options to your `board.config`:
+
+```conf
+# Enable macOS-specific optimizations
+CONFIG_PMW3610_MACOS_OPTIMIZATION=y
+
+# Enable moving average filter for smoother movement
+CONFIG_PMW3610_MOVING_AVERAGE=y
+
+# Adjust CPI for better macOS performance
+CONFIG_PMW3610_CPI=1000
+CONFIG_PMW3610_CPI_DIVIDOR=2
+```
+
+### What These Optimizations Do
+
+1. **CONFIG_PMW3610_MACOS_OPTIMIZATION**: 
+   - Increases SPI timing delays for better stability
+   - Adds interrupt handling optimizations
+   - Improves overall responsiveness on macOS
+
+2. **CONFIG_PMW3610_MOVING_AVERAGE**: 
+   - Applies a moving average filter to smooth cursor movement
+   - Reduces jitter and lag
+   - Provides more consistent tracking
+
+3. **CPI Adjustments**: 
+   - Higher CPI with dividor can provide better precision
+   - Reduces the need for large movements
+
+### Troubleshooting macOS Issues
+
+If you still experience issues on macOS:
+
+1. Try reducing the SPI frequency in your overlay:
+   ```dts
+   spi-max-frequency = <1000000>;  // Reduce from 2MHz to 1MHz
+   ```
+
+2. Increase the CPI dividor for more controlled movement:
+   ```conf
+   CONFIG_PMW3610_CPI_DIVIDOR=3
+   ```
+
+3. Disable smart algorithm if it causes issues:
+   ```conf
+   CONFIG_PMW3610_SMART_ALGORITHM=n
+   ```

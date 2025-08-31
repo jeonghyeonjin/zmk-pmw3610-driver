@@ -672,6 +672,14 @@ static int pmw3610_report_data(const struct device *dev) {
         }
     #endif
 
+    // 이동 평균 필터 적용 (맥에서의 부드러운 움직임을 위해)
+    #ifdef CONFIG_PMW3610_MOVING_AVERAGE
+    float filtered_x = apply_moving_average((float)x, moving_average_x);
+    float filtered_y = apply_moving_average((float)y, moving_average_y);
+    x = (int16_t)filtered_x;
+    y = (int16_t)filtered_y;
+    #endif
+
     // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
         int16_t temp = x;
@@ -764,6 +772,12 @@ static void pmw3610_work_callback(struct k_work *work) {
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
     }
+    
+    // 맥에서의 인터럽트 재활성화 최적화
+    #ifdef CONFIG_PMW3610_MACOS_OPTIMIZATION
+    k_busy_wait(2); // 2us 대기 후 인터럽트 재활성화
+    #endif
+    
     set_interrupt(dev, true);  // Always re-enable interrupt after processing
 }
 

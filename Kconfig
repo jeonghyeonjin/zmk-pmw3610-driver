@@ -21,6 +21,21 @@ config PMW3610_SMART_ALGORITHM
     The algorithm is used to extend the tracking acrocss a wider range of surfaces
     such as graniles and tiles.
 
+config PMW3610_MACOS_OPTIMIZATION
+  bool "Enable macOS-specific optimizations"
+  default y
+  help
+    Enable optimizations specifically for macOS to improve cursor responsiveness
+    and reduce lag. This includes additional timing delays and interrupt handling
+    optimizations.
+
+config PMW3610_MOVING_AVERAGE
+  bool "Enable moving average filter for smoother cursor movement"
+  default y
+  help
+    Enable moving average filtering to smooth out cursor movement,
+    especially beneficial on macOS for reducing jitter and lag.
+
 config PMW3610_CPI
     int "PMW3610's default CPI"
     default 800
