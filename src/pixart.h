@@ -63,8 +63,6 @@ struct pixart_data {
     int16_t motion_batch_x;
     int16_t motion_batch_y;
     uint8_t batch_count;
-    bool motion_pending;
-    int64_t last_motion_time;
 #endif
 };
 

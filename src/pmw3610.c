@@ -603,11 +603,11 @@ static float moving_average_y[MOVING_AVERAGE_SAMPLES] = {0};
 static int moving_average_index = 0;
 
 #ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
-static void pmw3610_bt_motion_batch_timeout(struct k_work *work) {
+static void pmw3610_bt_motion_batch_timeout(struct k_work_delayable *work) {
     struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, bt_batch_work);
     const struct device *dev = data->dev;
     
-    if (data->motion_pending && data->batch_count > 0) {
+    if (data->batch_count > 0) {
         // Send batched motion data
         int16_t x = data->motion_batch_x;
         int16_t y = data->motion_batch_y;
@@ -616,10 +616,12 @@ static void pmw3610_bt_motion_batch_timeout(struct k_work *work) {
         data->motion_batch_x = 0;
         data->motion_batch_y = 0;
         data->batch_count = 0;
-        data->motion_pending = false;
         
-        // Process the batched motion
-        pmw3610_process_motion(dev, x, y);
+        // Send the batched motion
+        if (x != 0 || y != 0) {
+            input_report_rel(dev, INPUT_REL_X, x, false, K_NO_WAIT);
+            input_report_rel(dev, INPUT_REL_Y, y, true, K_NO_WAIT);
+        }
     }
 }
 #endif
@@ -724,31 +726,22 @@ static int pmw3610_report_data(const struct device *dev) {
             return 0; // Ignore small movements
         }
         
-        // Batch motion data for Bluetooth optimization
+        // Simple motion batching for Bluetooth optimization
         data->motion_batch_x += x;
         data->motion_batch_y += y;
         data->batch_count++;
-        data->motion_pending = true;
-        data->last_motion_time = k_uptime_get();
         
-        // Send immediately if batch is full or if it's been too long
-        if (data->batch_count >= CONFIG_PMW3610_BT_BATCH_SIZE || 
-            (k_uptime_get() - data->last_motion_time) > 10) {
-            
-            int16_t batched_x = data->motion_batch_x;
-            int16_t batched_y = data->motion_batch_y;
+        // Send immediately if batch is full
+        if (data->batch_count >= CONFIG_PMW3610_BT_BATCH_SIZE) {
+            x = data->motion_batch_x;
+            y = data->motion_batch_y;
             
             // Reset batch
             data->motion_batch_x = 0;
             data->motion_batch_y = 0;
             data->batch_count = 0;
-            data->motion_pending = false;
-            
-            // Process the batched motion
-            x = batched_x;
-            y = batched_y;
         } else {
-            // Schedule a timeout to send batched data
+            // Schedule a timeout to send remaining batched data
             k_work_schedule(&data->bt_batch_work, K_MSEC(5));
             return 0;
         }
@@ -912,8 +905,6 @@ static int pmw3610_init(const struct device *dev) {
     data->motion_batch_x = 0;
     data->motion_batch_y = 0;
     data->batch_count = 0;
-    data->motion_pending = false;
-    data->last_motion_time = 0;
 #endif
 
     if (config->enable_gpio.port) {
