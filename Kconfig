@@ -21,21 +21,6 @@ config PMW3610_SMART_ALGORITHM
     The algorithm is used to extend the tracking acrocss a wider range of surfaces
     such as graniles and tiles.
 
-config PMW3610_MACOS_OPTIMIZATION
-  bool "Enable macOS-specific optimizations"
-  default y
-  help
-    Enable optimizations specifically for macOS to improve cursor responsiveness
-    and reduce lag. This includes additional timing delays and interrupt handling
-    optimizations.
-
-config PMW3610_MOVING_AVERAGE
-  bool "Enable moving average filter for smoother cursor movement"
-  default y
-  help
-    Enable moving average filtering to smooth out cursor movement,
-    especially beneficial on macOS for reducing jitter and lag.
-
 config PMW3610_CPI
     int "PMW3610's default CPI"
     default 800
@@ -83,7 +68,38 @@ config PMW3610_POLLING_RATE_125
 config PMW3610_POLLING_RATE_125_SW
     bool "125 Hz with software implementation"
 
+config PMW3610_POLLING_RATE_100
+    bool "100 Hz (recommended for Bluetooth)"
+
+config PMW3610_POLLING_RATE_50
+    bool "50 Hz (for Bluetooth optimization)"
+
 endchoice
+
+config PMW3610_BLUETOOTH_OPTIMIZATION
+    bool "Enable Bluetooth-specific optimizations"
+    default y
+    help
+      Enable optimizations specifically for Bluetooth connections to reduce latency
+      and improve performance on macOS and other Bluetooth hosts.
+
+config PMW3610_MOTION_THRESHOLD
+    int "Motion threshold for Bluetooth optimization"
+    default 2
+    range 1 10
+    depends on PMW3610_BLUETOOTH_OPTIMIZATION
+    help
+      Minimum motion value to trigger a report when using Bluetooth optimization.
+      Higher values reduce sensitivity but improve performance.
+
+config PMW3610_BT_BATCH_SIZE
+    int "Batch size for Bluetooth motion reports"
+    default 3
+    range 1 5
+    depends on PMW3610_BLUETOOTH_OPTIMIZATION
+    help
+      Number of motion samples to batch before sending a report over Bluetooth.
+      Higher values reduce Bluetooth traffic but may increase latency.
 
 config PMW3610_FORCE_AWAKE
     bool "PMW3610 forced awake mode"

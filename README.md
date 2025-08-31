@@ -99,57 +99,44 @@ CONFIG_ZMK_MOUSE=y
 CONFIG_PMW3610=y
 ```
 
-## macOS Optimization
+## Bluetooth Optimization
 
-If you experience slow cursor movement or lag on macOS, the driver includes specific optimizations:
+This driver includes special optimizations for Bluetooth connections, particularly useful for macOS and other Bluetooth hosts that may experience latency issues.
 
-### Recommended Configuration for macOS
+### Recommended Configuration for Bluetooth
 
-Add these options to your `board.config`:
+For optimal Bluetooth performance, especially on macOS, use these settings:
 
 ```conf
-# Enable macOS-specific optimizations
-CONFIG_PMW3610_MACOS_OPTIMIZATION=y
+# Enable Bluetooth optimizations
+CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION=y
 
-# Enable moving average filter for smoother movement
-CONFIG_PMW3610_MOVING_AVERAGE=y
+# Use lower polling rate for Bluetooth
+CONFIG_PMW3610_POLLING_RATE_100=y
+# or
+CONFIG_PMW3610_POLLING_RATE_50=y
 
-# Adjust CPI for better macOS performance
-CONFIG_PMW3610_CPI=1000
-CONFIG_PMW3610_CPI_DIVIDOR=2
+# Adjust motion threshold (higher = less sensitive but smoother)
+CONFIG_PMW3610_MOTION_THRESHOLD=2
+
+# Batch size for motion reports (higher = less Bluetooth traffic)
+CONFIG_PMW3610_BT_BATCH_SIZE=3
 ```
 
-### What These Optimizations Do
+### How Bluetooth Optimization Works
 
-1. **CONFIG_PMW3610_MACOS_OPTIMIZATION**: 
-   - Increases SPI timing delays for better stability
-   - Adds interrupt handling optimizations
-   - Improves overall responsiveness on macOS
+1. **Motion Thresholding**: Small movements below the threshold are ignored to reduce noise
+2. **Motion Batching**: Multiple motion samples are combined before sending to reduce Bluetooth traffic
+3. **Adaptive Polling**: Lower polling rates reduce system load and improve Bluetooth stability
+4. **Timeout Handling**: Ensures motion data is sent even if the batch isn't full
 
-2. **CONFIG_PMW3610_MOVING_AVERAGE**: 
-   - Applies a moving average filter to smooth cursor movement
-   - Reduces jitter and lag
-   - Provides more consistent tracking
+### Troubleshooting Bluetooth Issues
 
-3. **CPI Adjustments**: 
-   - Higher CPI with dividor can provide better precision
-   - Reduces the need for large movements
+If you experience lag or stuttering on Bluetooth connections:
 
-### Troubleshooting macOS Issues
+1. Try reducing the polling rate to 50Hz or 100Hz
+2. Increase the motion threshold to 3-5
+3. Increase the batch size to 4-5
+4. Ensure your Bluetooth host supports the HID protocol properly
 
-If you still experience issues on macOS:
-
-1. Try reducing the SPI frequency in your overlay:
-   ```dts
-   spi-max-frequency = <1000000>;  // Reduce from 2MHz to 1MHz
-   ```
-
-2. Increase the CPI dividor for more controlled movement:
-   ```conf
-   CONFIG_PMW3610_CPI_DIVIDOR=3
-   ```
-
-3. Disable smart algorithm if it causes issues:
-   ```conf
-   CONFIG_PMW3610_SMART_ALGORITHM=n
-   ```
+These optimizations should significantly improve the trackball performance on macOS and other Bluetooth hosts.

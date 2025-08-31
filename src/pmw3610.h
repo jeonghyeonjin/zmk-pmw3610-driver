@@ -11,13 +11,13 @@ extern "C" {
  * k_busy_wait is used instead of k_sleep */
 // - sub-us time is rounded to us, due to the limitation of k_busy_wait, see :
 // https://github.com/zephyrproject-rtos/zephyr/issues/6498
-#define T_NCS_SCLK 2     /* 120 ns (rounded to 2us for macOS stability) */
-#define T_SCLK_NCS_WR 15 /* 10 us (increased to 15us for macOS) */
-#define T_SRAD 6         /* 4 us (increased to 6us for macOS) */
-#define T_SRAD_MOTBR 6   /* same as T_SRAD */
-#define T_SRX 2          /* 250 ns (rounded to 2us for macOS) */
-#define T_SWX 40         /* SWW: 30 us, SWR: 20 us (increased to 40us for macOS) */
-#define T_BEXIT 2        /* 250 ns (rounded to 2us for macOS)*/
+#define T_NCS_SCLK 1     /* 120 ns (rounded to 1us) */
+#define T_SCLK_NCS_WR 10 /* 10 us */
+#define T_SRAD 4         /* 4 us */
+#define T_SRAD_MOTBR 4   /* same as T_SRAD */
+#define T_SRX 1          /* 250 ns (rounded to 1 us) */
+#define T_SWX 30         /* SWW: 30 us, SWR: 20 us */
+#define T_BEXIT 1        /* 250 ns (rounded to 1us)*/
 
 /* Sensor registers (addresses) */
 #define PMW3610_REG_PRODUCT_ID 0x00
@@ -107,6 +107,10 @@ extern "C" {
 #define PMW3610_POLLING_RATE_VALUE 0x0D
 #elif defined(CONFIG_PMW3610_POLLING_RATE_125)
 #define PMW3610_POLLING_RATE_VALUE 0x00
+#elif defined(CONFIG_PMW3610_POLLING_RATE_100)
+#define PMW3610_POLLING_RATE_VALUE 0x0A
+#elif defined(CONFIG_PMW3610_POLLING_RATE_50)
+#define PMW3610_POLLING_RATE_VALUE 0x05
 #else
 #error "A valid PMW3610 polling rate must be selected"
 #endif

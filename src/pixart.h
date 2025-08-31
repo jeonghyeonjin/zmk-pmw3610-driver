@@ -39,6 +39,9 @@ struct pixart_data {
     // the work structure holding the trigger job
     struct k_work trigger_work;
     struct k_work enable_gpio_work;
+#ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
+    struct k_work_delayable bt_batch_work;
+#endif
 
     // the work structure for delayable init steps
     struct k_work_delayable init_work;
@@ -54,6 +57,15 @@ struct pixart_data {
 
     // Add this new member
     bool automouse_active;
+
+#ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
+    // Bluetooth optimization variables
+    int16_t motion_batch_x;
+    int16_t motion_batch_y;
+    uint8_t batch_count;
+    bool motion_pending;
+    int64_t last_motion_time;
+#endif
 };
 
 // device config data structure

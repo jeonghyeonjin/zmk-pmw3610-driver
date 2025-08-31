@@ -16,6 +16,7 @@
 #include <zmk/keymap.h>
 #include "pmw3610.h"
 #include <math.h>
+#include <stdlib.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
@@ -601,6 +602,28 @@ static float moving_average_x[MOVING_AVERAGE_SAMPLES] = {0};
 static float moving_average_y[MOVING_AVERAGE_SAMPLES] = {0};
 static int moving_average_index = 0;
 
+#ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
+static void pmw3610_bt_motion_batch_timeout(struct k_work *work) {
+    struct pixart_data *data = CONTAINER_OF(work, struct pixart_data, bt_batch_work);
+    const struct device *dev = data->dev;
+    
+    if (data->motion_pending && data->batch_count > 0) {
+        // Send batched motion data
+        int16_t x = data->motion_batch_x;
+        int16_t y = data->motion_batch_y;
+        
+        // Reset batch
+        data->motion_batch_x = 0;
+        data->motion_batch_y = 0;
+        data->batch_count = 0;
+        data->motion_pending = false;
+        
+        // Process the batched motion
+        pmw3610_process_motion(dev, x, y);
+    }
+}
+#endif
+
 static float apply_moving_average(float new_value, float* buffer) {
     buffer[moving_average_index] = new_value;
     moving_average_index = (moving_average_index + 1) % MOVING_AVERAGE_SAMPLES;
@@ -672,14 +695,6 @@ static int pmw3610_report_data(const struct device *dev) {
         }
     #endif
 
-    // 이동 평균 필터 적용 (맥에서의 부드러운 움직임을 위해)
-    #ifdef CONFIG_PMW3610_MOVING_AVERAGE
-    float filtered_x = apply_moving_average((float)x, moving_average_x);
-    float filtered_y = apply_moving_average((float)y, moving_average_y);
-    x = (int16_t)filtered_x;
-    y = (int16_t)filtered_y;
-    #endif
-
     // 방향 및 반전 적용
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_90)) {
         int16_t temp = x;
@@ -703,19 +718,55 @@ static int pmw3610_report_data(const struct device *dev) {
     }
 
     if (x != 0 || y != 0) {
+#ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
+        // Apply motion threshold for Bluetooth optimization
+        if ((x < 0 ? -x : x) < CONFIG_PMW3610_MOTION_THRESHOLD && (y < 0 ? -y : y) < CONFIG_PMW3610_MOTION_THRESHOLD) {
+            return 0; // Ignore small movements
+        }
+        
+        // Batch motion data for Bluetooth optimization
+        data->motion_batch_x += x;
+        data->motion_batch_y += y;
+        data->batch_count++;
+        data->motion_pending = true;
+        data->last_motion_time = k_uptime_get();
+        
+        // Send immediately if batch is full or if it's been too long
+        if (data->batch_count >= CONFIG_PMW3610_BT_BATCH_SIZE || 
+            (k_uptime_get() - data->last_motion_time) > 10) {
+            
+            int16_t batched_x = data->motion_batch_x;
+            int16_t batched_y = data->motion_batch_y;
+            
+            // Reset batch
+            data->motion_batch_x = 0;
+            data->motion_batch_y = 0;
+            data->batch_count = 0;
+            data->motion_pending = false;
+            
+            // Process the batched motion
+            x = batched_x;
+            y = batched_y;
+        } else {
+            // Schedule a timeout to send batched data
+            k_work_schedule(&data->bt_batch_work, K_MSEC(5));
+            return 0;
+        }
+#endif
+
         if (input_mode != SCROLL) {
             input_report_rel(dev, INPUT_REL_X, x, false, K_NO_WAIT);
             input_report_rel(dev, INPUT_REL_Y, y, true, K_NO_WAIT);
         } else {
             data->scroll_delta_x += x;
             data->scroll_delta_y += y;
-            if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
+            if ((data->scroll_delta_y < 0 ? -data->scroll_delta_y : data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
                 input_report_rel(dev, INPUT_REL_WHEEL,
                                  data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
                                  true, K_NO_WAIT);
                 data->scroll_delta_x = 0;
                 data->scroll_delta_y = 0;
-            } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
+            } else if ((data->scroll_delta_x < 0 ? -data->scroll_delta_x : data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
                 input_report_rel(dev, INPUT_REL_HWHEEL,
                                  data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
                                  true, K_NO_WAIT);
@@ -772,12 +823,6 @@ static void pmw3610_work_callback(struct k_work *work) {
     if (config->enable_gpio.port && gpio_pin_get_dt(&config->enable_gpio)) {
         pmw3610_report_data(dev);
     }
-    
-    // 맥에서의 인터럽트 재활성화 최적화
-    #ifdef CONFIG_PMW3610_MACOS_OPTIMIZATION
-    k_busy_wait(2); // 2us 대기 후 인터럽트 재활성화
-    #endif
-    
     set_interrupt(dev, true);  // Always re-enable interrupt after processing
 }
 
@@ -858,6 +903,18 @@ static int pmw3610_init(const struct device *dev) {
 
     LOG_INF("Initializing enable_gpio_work");
     k_work_init(&data->enable_gpio_work, pmw3610_enable_gpio_work_callback);
+
+#ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
+    LOG_INF("Initializing Bluetooth optimization work");
+    k_work_init_delayable(&data->bt_batch_work, pmw3610_bt_motion_batch_timeout);
+    
+    // Initialize Bluetooth optimization variables
+    data->motion_batch_x = 0;
+    data->motion_batch_y = 0;
+    data->batch_count = 0;
+    data->motion_pending = false;
+    data->last_motion_time = 0;
+#endif
 
     if (config->enable_gpio.port) {
         LOG_INF("Configuring enable GPIO");
