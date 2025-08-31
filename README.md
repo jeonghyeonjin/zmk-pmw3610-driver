@@ -111,10 +111,15 @@ For optimal Bluetooth performance, especially on macOS, use these settings:
 # Enable Bluetooth optimizations
 CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION=y
 
-# Use lower polling rate for Bluetooth
-CONFIG_PMW3610_POLLING_RATE_100=y
-# or
-CONFIG_PMW3610_POLLING_RATE_50=y
+# Keep original polling rate for responsiveness
+CONFIG_PMW3610_POLLING_RATE_250=y
+
+# Enable smooth motion for better cursor movement
+CONFIG_PMW3610_SMOOTH_MOTION=y
+CONFIG_PMW3610_SMOOTH_FACTOR=8
+
+# Enable adaptive batching for dynamic performance
+CONFIG_PMW3610_ADAPTIVE_BATCHING=y
 
 # Adjust motion threshold (higher = less sensitive but smoother)
 CONFIG_PMW3610_MOTION_THRESHOLD=2
@@ -127,16 +132,26 @@ CONFIG_PMW3610_BT_BATCH_SIZE=3
 
 1. **Motion Thresholding**: Small movements below the threshold are ignored to reduce noise
 2. **Motion Batching**: Multiple motion samples are combined before sending to reduce Bluetooth traffic
-3. **Adaptive Polling**: Lower polling rates reduce system load and improve Bluetooth stability
-4. **Timeout Handling**: Ensures motion data is sent even if the batch isn't full
+3. **Motion Smoothing**: Uses interpolation to create smooth cursor movement instead of jerky updates
+4. **Adaptive Batching**: Dynamically adjusts batch size based on motion speed for optimal responsiveness
+5. **Timeout Handling**: Ensures motion data is sent even if the batch isn't full
+
+### Motion Smoothing Features
+
+- **Interpolation**: Smoothly interpolates between motion samples for fluid cursor movement
+- **Configurable Smoothing**: Adjustable smoothing factor (1-20) for different preferences
+- **Adaptive Response**: Fast movements use smaller batches for immediate response
+- **Efficient Processing**: Only processes motion when needed to save power
 
 ### Troubleshooting Bluetooth Issues
 
 If you experience lag or stuttering on Bluetooth connections:
 
-1. Try reducing the polling rate to 50Hz or 100Hz
-2. Increase the motion threshold to 3-5
-3. Increase the batch size to 4-5
-4. Ensure your Bluetooth host supports the HID protocol properly
+1. **For jerky movement**: Enable motion smoothing with `CONFIG_PMW3610_SMOOTH_MOTION=y`
+2. **For responsiveness**: Adjust smoothing factor (lower = more responsive, higher = smoother)
+3. **For fast movements**: Enable adaptive batching with `CONFIG_PMW3610_ADAPTIVE_BATCHING=y`
+4. **For general issues**: Increase the motion threshold to 3-5
+5. **For extreme cases**: Try reducing the polling rate to 100Hz
+6. Ensure your Bluetooth host supports the HID protocol properly
 
 These optimizations should significantly improve the trackball performance on macOS and other Bluetooth hosts.

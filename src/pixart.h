@@ -41,6 +41,9 @@ struct pixart_data {
     struct k_work enable_gpio_work;
 #ifdef CONFIG_PMW3610_BLUETOOTH_OPTIMIZATION
     struct k_work_delayable bt_batch_work;
+#ifdef CONFIG_PMW3610_SMOOTH_MOTION
+    struct k_work_delayable smooth_work;
+#endif
 #endif
 
     // the work structure for delayable init steps
