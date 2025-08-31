@@ -66,6 +66,23 @@ struct pixart_data {
     int16_t motion_batch_x;
     int16_t motion_batch_y;
     uint8_t batch_count;
+    
+#ifdef CONFIG_PMW3610_SMOOTH_MOTION
+    // Motion smoothing variables
+    float smooth_x;
+    float smooth_y;
+    float target_x;
+    float target_y;
+    int64_t last_smooth_time;
+    bool smoothing_active;
+#endif
+
+#ifdef CONFIG_PMW3610_ADAPTIVE_BATCHING
+    // Adaptive batching variables
+    uint8_t current_batch_size;
+    int16_t last_motion_magnitude;
+    int64_t last_motion_time;
+#endif
 #endif
 };
 
